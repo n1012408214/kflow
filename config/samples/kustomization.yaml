@@ -1,0 +1,4 @@
+## Append samples of your project ##
+resources:
+- kflow.io_v1alpha1_kflow.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

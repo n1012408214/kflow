@@ -1,0 +1,202 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: kflows.kflow.io.kflow
+spec:
+  group: kflow.io.kflow
+  names:
+    kind: Kflow
+    listKind: KflowList
+    plural: kflows
+    singular: kflow
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Kflow is the Schema for the kflows API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: KflowSpec defines the desired state of Kflow.
+            properties:
+              groupPolicy:
+                description: 分组策略（新增字段）
+                properties:
+                  maxTasks:
+                    type: integer
+                  type:
+                    type: string
+                required:
+                - maxTasks
+                - type
+                type: object
+              tasks:
+                description: 任务定义
+                items:
+                  properties:
+                    args:
+                      items:
+                        type: string
+                      type: array
+                    command:
+                      items:
+                        type: string
+                      type: array
+                    depends:
+                      items:
+                        type: string
+                      type: array
+                    image:
+                      type: string
+                    inputPath:
+                      description: 数据路径（与 Volume 绑定）
+                      type: string
+                    name:
+                      type: string
+                    outputPath:
+                      type: string
+                  required:
+                  - command
+                  - image
+                  - name
+                  type: object
+                type: array
+            required:
+            - groupPolicy
+            - tasks
+            type: object
+          status:
+            properties:
+              groupNodes:
+                items:
+                  type: string
+                type: array
+              grouped:
+                description: 记录每个组的状态
+                type: boolean
+              groups:
+                items:
+                  properties:
+                    completionTime:
+                      format: date-time
+                      type: string
+                    groupId:
+                      type: integer
+                    startTime:
+                      format: date-time
+                      type: string
+                    status:
+                      type: string
+                    tasks:
+                      items:
+                        properties:
+                          args:
+                            items:
+                              type: string
+                            type: array
+                          command:
+                            items:
+                              type: string
+                            type: array
+                          depends:
+                            items:
+                              type: string
+                            type: array
+                          image:
+                            type: string
+                          inputPath:
+                            description: 数据路径（与 Volume 绑定）
+                            type: string
+                          name:
+                            type: string
+                          outputPath:
+                            type: string
+                        required:
+                        - command
+                        - image
+                        - name
+                        type: object
+                      type: array
+                  required:
+                  - groupId
+                  - status
+                  - tasks
+                  type: object
+                type: array
+              phase:
+                type: string
+              tasks:
+                additionalProperties:
+                  properties:
+                    depends:
+                      items:
+                        type: string
+                      type: array
+                    node:
+                      type: string
+                    pod:
+                      type: string
+                    status:
+                      type: string
+                    task:
+                      properties:
+                        args:
+                          items:
+                            type: string
+                          type: array
+                        command:
+                          items:
+                            type: string
+                          type: array
+                        depends:
+                          items:
+                            type: string
+                          type: array
+                        image:
+                          type: string
+                        inputPath:
+                          description: 数据路径（与 Volume 绑定）
+                          type: string
+                        name:
+                          type: string
+                        outputPath:
+                          type: string
+                      required:
+                      - command
+                      - image
+                      - name
+                      type: object
+                  required:
+                  - node
+                  - status
+                  - task
+                  type: object
+                type: object
+            required:
+            - phase
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

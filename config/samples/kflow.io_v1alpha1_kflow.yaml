@@ -1,0 +1,33 @@
+apiVersion: kflow.io.kflow/v1alpha1
+kind: Kflow
+metadata:
+  labels:
+    app.kubernetes.io/name: kflow
+    app.kubernetes.io/managed-by: kustomize
+  name: kflow-sample
+spec:
+  # TODO(user): Add fields here
+  groupPolicy:
+    type: Level
+    maxTasks: 2
+  tasks:
+    - name: task1
+      image: crpi-2rclh8j1lqwo45m4.cn-qingdao.personal.cr.aliyuncs.com/mnikube/test-task
+      command: ["/bin/sh", "-c", "echo Hello, World!"]
+      depends:
+        - task0
+    - name: task2
+      image: crpi-2rclh8j1lqwo45m4.cn-qingdao.personal.cr.aliyuncs.com/mnikube/test-task
+      command: ["/bin/sh", "-c", "echo Hello, World!"]
+      depends: 
+        - task1
+    #- name: task3
+    #  image: crpi-2rclh8j1lqwo45m4.cn-qingdao.personal.cr.aliyuncs.com/mnikube/test-task
+    #  command: ["/bin/sh", "-c", "echo Hello, World!"]
+    #  depends: 
+    #    - task2
+
+
+
+
+

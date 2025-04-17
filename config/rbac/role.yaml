@@ -1,0 +1,38 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - kflow.io.kflow
+  resources:
+  - kflows
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kflow.io.kflow
+  resources:
+  - kflows/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - kflow.io.kflow
+  resources:
+  - kflows/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list", "watch","create"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["create", "get", "list", "watch"]
