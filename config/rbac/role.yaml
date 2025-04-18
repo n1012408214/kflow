@@ -30,6 +30,8 @@ rules:
   - get
   - patch
   - update
+  - list
+  - watch
 - apiGroups: [""]
   resources: ["nodes"]
   verbs: ["get", "list", "watch","create"]

@@ -15,7 +15,6 @@ spec:
       image: crpi-2rclh8j1lqwo45m4.cn-qingdao.personal.cr.aliyuncs.com/mnikube/test-task
       command: ["/bin/sh", "-c", "echo Hello, World!"]
       depends:
-        - task0
     - name: task2
       image: crpi-2rclh8j1lqwo45m4.cn-qingdao.personal.cr.aliyuncs.com/mnikube/test-task
       command: ["/bin/sh", "-c", "echo Hello, World!"]
