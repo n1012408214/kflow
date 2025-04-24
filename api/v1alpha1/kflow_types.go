@@ -47,6 +47,7 @@ type TaskSpec struct {
 
 	// +optional
 	Depends []string `json:"depends,omitempty"` //
+	Nexts   []string `json:"nexts,omitempty"`
 
 	// 数据路径（与 Volume 绑定）
 	InputPath  string `json:"inputPath,omitempty"`  // 例如 /data/input
@@ -75,8 +76,9 @@ type TaskStatus struct {
 	Task    TaskSpec `json:"task"`
 	Status  string   `json:"status"`
 	Node    string   `json:"node"`
-	Depends []string `json:"depends,omitempty"`
 	Pod     string   `json:"pod,omitempty"`
+	Depends []string `json:"depends,omitempty"`
+	Nexts   []string `json:"nexts,omitempty"`
 }
 
 // +kubebuilder:object:root=true

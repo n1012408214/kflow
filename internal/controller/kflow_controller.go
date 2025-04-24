@@ -79,11 +79,6 @@ func (r *KflowReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 				Namespace: "default",      // 假设 Kflow 资源的命名空间为 "default"
 			}
 			err := r.Get(ctx, kflowKey, &kflow)
-			if err != nil {
-				log.Error(err_kflow, "failed to get Kflow resource")
-				return reconcile.Result{}, err_kflow
-			}
-
 			if kflow.Status.Tasks == nil {
 				log.Info("Status update not ready")
 				return reconcile.Result{}, err
@@ -102,9 +97,9 @@ func (r *KflowReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 				log.Error(err, "Failed to update Kflow status")
 				return reconcile.Result{}, err
 			}
-
-			for _, Group := range kflow.Status.Groups {
-				err := r.scheduleTasks(&kflow, Group.Tasks)
+			for _, next := range kflow.Status.Tasks[parts[2]].Nexts {
+				log.Info("start schedule task", "task name", next)
+				err = r.scheduleTasks(&kflow, next)
 				if err != nil {
 					log.Error(err, "Failed to schedule tasks")
 					return reconcile.Result{}, err
@@ -141,14 +136,13 @@ func (r *KflowReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 				log.Error(err, "Failed to group tasks")
 				return reconcile.Result{}, err
 			}
-
-			for _, Group := range kflow.Status.Groups {
-				err := r.scheduleTasks(&kflow, Group.Tasks)
-				if err != nil {
-					log.Error(err, "Failed to schedule tasks")
-					return reconcile.Result{}, err
-				}
+			log.Info("Start schedule task0")
+			err = r.scheduleTasks(&kflow, kflow.Spec.Tasks[0].Name)
+			if err != nil {
+				log.Error(err, "Failed to schedule tasks")
+				return reconcile.Result{}, err
 			}
+
 		}
 		if err := r.Status().Update(ctx, &kflow); err != nil {
 			log.Error(err, "Failed to update Kflow status")
@@ -213,6 +207,7 @@ func (r *KflowReconciler) CreateTaskStatus(groupID int, task kflowiov1alpha1.Tas
 		Status:  "create",
 		Node:    kflow.Status.GroupNodes[groupID],
 		Depends: task.Depends,
+		Nexts:   task.Nexts,
 	}
 	return taskstatus
 }
@@ -224,66 +219,64 @@ func hashDataPath(s string) int {
 }
 
 // scheduleTasks 为每个任务组选择一个节点，并为任务创建 Pod
-func (r *KflowReconciler) scheduleTasks(kflow *v1alpha1.Kflow, Tasks []kflowiov1alpha1.TaskSpec) error {
+func (r *KflowReconciler) scheduleTasks(kflow *v1alpha1.Kflow, taskName string) error {
 	ctrl.Log.Info("Start schedule Tasks")
 
 	// 为每个任务创建 Pod
-	for _, TaskSpec := range Tasks {
-
-		if kflow.Status.Tasks[TaskSpec.Name].Status == "completed" {
-			log.Log.Info("task completed", "task name", TaskSpec.Name, "status", kflow.Status.Tasks[TaskSpec.Name])
-			continue
-		}
-		if r.CheckDependsStatus(*kflow, TaskSpec) {
-			ctrl.Log.Info("start build pod", "task name", TaskSpec.Name)
-			pod := &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      fmt.Sprintf("%s-%s", kflow.Name, TaskSpec.Name),
-					Namespace: "kflow-worker",
-				},
-				Spec: corev1.PodSpec{
-					RestartPolicy: corev1.RestartPolicyNever,
-					NodeSelector: map[string]string{
-						"kubernetes.io/hostname": kflow.Status.Tasks[TaskSpec.Name].Node, // 替换为目标节点的名称
-					},
-					Containers: []corev1.Container{
-						{
-							Name:    TaskSpec.Name,
-							Image:   TaskSpec.Image, // 需要替换为实际的任务镜像
-							Command: TaskSpec.Command,
-						},
-					},
-					//Affinity: &corev1.Affinity{
-					//	NodeAffinity: &corev1.NodeAffinity{
-					//		RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-					//			NodeSelectorTerms: []corev1.NodeSelectorTerm{
-					//				{
-					//					MatchExpressions: []corev1.NodeSelectorRequirement{
-					//						{
-					//							Key:      "kubernetes.io/hostname",
-					//							Operator: corev1.NodeSelectorOpIn,
-					//							Values:   []string{nodeName},
-					//						},
-					//					},
-					//				},
-					//			},
-					//		},
-					//	},
-					//},
-				},
-			}
-
-			ctrl.Log.Info("start create contrainer")
-			if err := r.Create(context.Background(), pod); err != nil {
-				return err
-			}
-			taskStatus := kflow.Status.Tasks[TaskSpec.Name]
-			taskStatus.Pod = pod.Name
-			taskStatus.Status = "Running"
-			kflow.Status.Tasks[TaskSpec.Name] = taskStatus
-		}
-
+	if kflow.Status.Tasks[taskName].Status == "completed" {
+		log.Log.Info("task completed", "task name", taskName, "status", kflow.Status.Tasks[taskName])
+		return nil
 	}
+	if r.CheckDependsStatus(*kflow, kflow.Status.Tasks[taskName].Task) {
+		TaskSpec := kflow.Status.Tasks[taskName].Task
+		ctrl.Log.Info("start build pod", "task name", TaskSpec.Name)
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("%s-%s", kflow.Name, TaskSpec.Name),
+				Namespace: "kflow-worker",
+			},
+			Spec: corev1.PodSpec{
+				RestartPolicy: corev1.RestartPolicyNever,
+				NodeSelector: map[string]string{
+					"kubernetes.io/hostname": kflow.Status.Tasks[TaskSpec.Name].Node, // 替换为目标节点的名称
+				},
+				Containers: []corev1.Container{
+					{
+						Name:    TaskSpec.Name,
+						Image:   TaskSpec.Image, // 需要替换为实际的任务镜像
+						Command: TaskSpec.Command,
+					},
+				},
+				//Affinity: &corev1.Affinity{
+				//	NodeAffinity: &corev1.NodeAffinity{
+				//		RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+				//			NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				//				{
+				//					MatchExpressions: []corev1.NodeSelectorRequirement{
+				//						{
+				//							Key:      "kubernetes.io/hostname",
+				//							Operator: corev1.NodeSelectorOpIn,
+				//							Values:   []string{nodeName},
+				//						},
+				//					},
+				//				},
+				//			},
+				//		},
+				//	},
+				//},
+			},
+		}
+
+		ctrl.Log.Info("start create contrainer")
+		if err := r.Create(context.Background(), pod); err != nil {
+			return err
+		}
+		taskStatus := kflow.Status.Tasks[TaskSpec.Name]
+		taskStatus.Pod = pod.Name
+		taskStatus.Status = "Running"
+		kflow.Status.Tasks[TaskSpec.Name] = taskStatus
+	}
+
 	return nil
 }
 
@@ -351,48 +344,3 @@ func (r *KflowReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 	return err
 }
-
-/*func (r *KflowReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&kflowiov1alpha1.Kflow{}).
-		// 监听 Pod 资源
-		Watches(
-			builder.Kind(mgr.GetScheme(), &corev1.Pod{}),
-			handler.EnqueueRequestsFromMapFunc(handler.MapFunc(func(obj client.Object) []reconcile.Request {
-				pod, ok := obj.(*corev1.Pod)
-				if !ok {
-					return nil
-				}
-
-				if !strings.HasPrefix(pod.GetName(), "kflow-sample-") {
-					return nil
-				}
-
-				if pod.GetNamespace() != "kflow-worker" ||
-					(pod.Status.Phase != corev1.PodSucceeded && pod.Status.Phase != corev1.PodFailed) {
-					return nil
-				}
-
-				kflowName := pod.Labels["kflow-owner"]
-				if kflowName == "" {
-					return nil
-				}
-
-				return []reconcile.Request{
-					{
-						NamespacedName: client.ObjectKey{
-							Name:      kflowName,
-							Namespace: pod.Namespace,
-						},
-					},
-				}
-			})),
-			builder.WithPredicates(predicate.Funcs{
-				UpdateFunc: func(e event.UpdateEvent) bool {
-					newPod := e.ObjectNew.(*corev1.Pod)
-					return newPod.Status.Phase == corev1.PodSucceeded || newPod.Status.Phase == corev1.PodFailed
-				},
-			}),
-		).
-		Complete(r)
-}*/

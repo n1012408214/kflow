@@ -73,6 +73,10 @@ spec:
                       type: string
                     name:
                       type: string
+                    nexts:
+                      items:
+                        type: string
+                      type: array
                     outputPath:
                       type: string
                   required:
@@ -129,6 +133,10 @@ spec:
                             type: string
                           name:
                             type: string
+                          nexts:
+                            items:
+                              type: string
+                            type: array
                           outputPath:
                             type: string
                         required:
@@ -149,6 +157,10 @@ spec:
                 additionalProperties:
                   properties:
                     depends:
+                      items:
+                        type: string
+                      type: array
+                    nexts:
                       items:
                         type: string
                       type: array
@@ -179,6 +191,10 @@ spec:
                           type: string
                         name:
                           type: string
+                        nexts:
+                          items:
+                            type: string
+                          type: array
                         outputPath:
                           type: string
                       required:
