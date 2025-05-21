@@ -50,9 +50,11 @@ spec:
                 - maxTasks
                 - type
                 type: object
-              tasks:
+              requestID:
                 description: 任务定义
-                items:
+                type: string
+              tasks:
+                additionalProperties:
                   properties:
                     args:
                       items:
@@ -66,6 +68,8 @@ spec:
                       items:
                         type: string
                       type: array
+                    execTime:
+                      type: integer
                     image:
                       type: string
                     inputPath:
@@ -80,11 +84,10 @@ spec:
                     outputPath:
                       type: string
                   required:
-                  - command
                   - image
                   - name
                   type: object
-                type: array
+                type: object
             required:
             - groupPolicy
             - tasks
@@ -101,9 +104,6 @@ spec:
               groups:
                 items:
                   properties:
-                    completionTime:
-                      format: date-time
-                      type: string
                     groupId:
                       type: integer
                     startTime:
@@ -126,6 +126,8 @@ spec:
                             items:
                               type: string
                             type: array
+                          execTime:
+                            type: integer
                           image:
                             type: string
                           inputPath:
@@ -140,7 +142,6 @@ spec:
                           outputPath:
                             type: string
                         required:
-                        - command
                         - image
                         - name
                         type: object
@@ -184,6 +185,8 @@ spec:
                           items:
                             type: string
                           type: array
+                        execTime:
+                          type: integer
                         image:
                           type: string
                         inputPath:
@@ -198,7 +201,6 @@ spec:
                         outputPath:
                           type: string
                       required:
-                      - command
                       - image
                       - name
                       type: object

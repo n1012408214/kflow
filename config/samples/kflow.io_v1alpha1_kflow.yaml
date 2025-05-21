@@ -7,26 +7,78 @@ metadata:
   name: kflow-sample
 spec:
   # TODO(user): Add fields here
+  requestID: "123456"
   groupPolicy:
-    type: Level
-    maxTasks: 2
+    type: FaasFLOW
+    maxTasks: 3
   tasks:
-    - name: task1
+    task1:
+      name: task1
       image: crpi-2rclh8j1lqwo45m4.cn-qingdao.personal.cr.aliyuncs.com/mnikube/test-task
       command: ["/bin/sh", "-c", "echo Hello, World!"]
+      execTime: 1
       depends:
       nexts:
         - task2
-    - name: task2
+        - task3
+        - task4
+    task2:
+      name: task2
       image: crpi-2rclh8j1lqwo45m4.cn-qingdao.personal.cr.aliyuncs.com/mnikube/test-task
       command: ["/bin/sh", "-c", "echo Hello, World!"]
+      execTime: 2
       depends: 
         - task1
-    #- name: task3
-    #  image: crpi-2rclh8j1lqwo45m4.cn-qingdao.personal.cr.aliyuncs.com/mnikube/test-task
-    #  command: ["/bin/sh", "-c", "echo Hello, World!"]
-    #  depends: 
-    #    - task2
+      nexts:
+        - task5
+    task3:
+      name: task3
+      image: crpi-2rclh8j1lqwo45m4.cn-qingdao.personal.cr.aliyuncs.com/mnikube/test-task
+      command: ["/bin/sh", "-c", "echo Hello, World!"]
+      execTime: 3
+      depends: 
+        - task1
+      nexts: 
+        - task5
+        - task6
+    task4:
+      name: task4
+      image: crpi-2rclh8j1lqwo45m4.cn-qingdao.personal.cr.aliyuncs.com/mnikube/test-task
+      command: ["/bin/sh", "-c", "echo Hello, World!"]
+      execTime: 4
+      depends:
+        - task1
+      nexts:
+        - task6
+    task5:
+      name: task5
+      image: crpi-2rclh8j1lqwo45m4.cn-qingdao.personal.cr.aliyuncs.com/mnikube/test-task
+      command: ["/bin/sh", "-c", "echo Hello, World!"]
+      execTime: 5
+      depends:
+        - task2
+        - task3
+      nexts:
+        - task7
+    task6:
+      name: task6
+      image: crpi-2rclh8j1lqwo45m4.cn-qingdao.personal.cr.aliyuncs.com/mnikube/test-task
+      command: ["/bin/sh", "-c", "echo Hello, World!"]
+      execTime: 6
+      depends:
+        - task3
+        - task4
+      nexts:
+        - task7
+    task7: 
+      name: task7
+      image: crpi-2rclh8j1lqwo45m4.cn-qingdao.personal.cr.aliyuncs.com/mnikube/test-task
+      command: ["/bin/sh", "-c", "echo Hello, World!"]
+      execTime: 7
+      depends:
+        - task5
+        - task6
+      nexts:      
 
 
 

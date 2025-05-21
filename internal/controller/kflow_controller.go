@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"regexp"
+	"sort"
 	"strings"
 
 	"apiserver/api/v1alpha1"
@@ -61,17 +62,15 @@ func (r *KflowReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 	"namespace", req.Namespace,
 	"namespacename", req.NamespacedName)*/
 
+	//pod triger
 	if err_pod == nil && err_kflow != nil {
-		//log.Info("is pod")
 
 		if !strings.HasPrefix(pod.Name, "kflow-sample-") {
-			//log.Info("pod name prefix uncorrect")
 			return reconcile.Result{}, client.IgnoreNotFound(err_kflow)
 		} else {
 			log.Info("is task pod",
 				"pod name", pod.Name)
 			parts := strings.Split(pod.Name, "-")
-			//time.Sleep(3 * time.Second)
 
 			var kflow kflowiov1alpha1.Kflow
 			kflowKey := types.NamespacedName{
@@ -83,13 +82,10 @@ func (r *KflowReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 				log.Info("Status update not ready")
 				return reconcile.Result{}, err
 			}
-			// 成功获取 Kflow 资源后，你可以在这里继续处理
-			//log.Info("checking task status", "task name", parts[2])
-			//log.Info("show task status", "status", kflow.Status.Tasks)
-			//log.Info("show status", "status", kflow.Status)
 			log.Info("show task status",
 				"task name", parts[2],
 				"task status", kflow.Status.Tasks[parts[2]])
+
 			taskStautus := kflow.Status.Tasks[parts[2]]
 			taskStautus.Status = "completed"
 			kflow.Status.Tasks[parts[2]] = taskStautus
@@ -97,9 +93,10 @@ func (r *KflowReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 				log.Error(err, "Failed to update Kflow status")
 				return reconcile.Result{}, err
 			}
-			for _, next := range kflow.Status.Tasks[parts[2]].Nexts {
+
+			for _, next := range taskStautus.Nexts {
 				log.Info("start schedule task", "task name", next)
-				err = r.scheduleTasks(&kflow, next)
+				err = r.scheduleTasks(&kflow, kflow.Spec.Tasks[next], kflow.Status.Tasks[next])
 				if err != nil {
 					log.Error(err, "Failed to schedule tasks")
 					return reconcile.Result{}, err
@@ -109,11 +106,11 @@ func (r *KflowReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 		}
 
 	}
-
+	//kflow triger
 	if err_kflow == nil && err_pod != nil {
 		log.Info("is kflow")
+
 		if kflow.Status.Grouped == false {
-			// Step 1: 分配分组node
 			ctrl.Log.Info("start group nodes")
 			nodeList := &corev1.NodeList{}
 			if err := r.List(context.Background(), nodeList); err != nil {
@@ -130,14 +127,14 @@ func (r *KflowReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 				kflow.Status.GroupNodes[i] = selectedNode
 			}
 
-			//Step3：任务分组
 			err := r.groupTasks(&kflow)
 			if err != nil {
 				log.Error(err, "Failed to group tasks")
 				return reconcile.Result{}, err
 			}
 			log.Info("Start schedule task0")
-			err = r.scheduleTasks(&kflow, kflow.Spec.Tasks[0].Name)
+			task := kflow.Spec.Tasks["task1"]
+			err = r.scheduleTasks(&kflow, task, kflow.Status.Tasks[task.Name])
 			if err != nil {
 				log.Error(err, "Failed to schedule tasks")
 				return reconcile.Result{}, err
@@ -149,7 +146,7 @@ func (r *KflowReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 			return reconcile.Result{}, err
 		}
 	}
-
+	//not kflow or pod
 	if err_kflow != nil && err_pod != nil {
 		log.Info("not kflow or pod", "request name", req.Name)
 		return reconcile.Result{}, client.IgnoreNotFound(err_kflow)
@@ -158,17 +155,14 @@ func (r *KflowReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 	return reconcile.Result{}, nil
 }
 
-// groupTasks 将任务分组
 func (r *KflowReconciler) groupTasks(kflow *v1alpha1.Kflow) error {
 	ctrl.Log.Info("Start group Tasks")
 	groupedTasks := make(map[int][]kflowiov1alpha1.TaskSpec)
 	kflow.Status.Groups = r.SetGroupStatus(groupedTasks, "pending")
 	groupPolicy := kflow.Spec.GroupPolicy
 
-	// 按照分组策略进行分组
 	switch groupPolicy.Type {
-	case "Level":
-		// Level 类型：轮询分组
+	/*case "Level":
 		for i, task := range kflow.Spec.Tasks {
 			groupID := i / groupPolicy.MaxTasks
 			groupedTasks[groupID] = append(groupedTasks[groupID], task)
@@ -178,20 +172,173 @@ func (r *KflowReconciler) groupTasks(kflow *v1alpha1.Kflow) error {
 				"status", kflow.Status.Tasks[task.Name])
 		}
 	case "DataAffinity":
-		// DataAffinity 类型：按数据路径分组（假设这里是基于 InputPath 或 OutputPath）
 		for _, task := range kflow.Spec.Tasks {
 			groupID := hashDataPath(task.InputPath) % groupPolicy.MaxTasks
 			groupedTasks[groupID] = append(groupedTasks[groupID], task)
 			kflow.Status.Tasks[task.Name] = r.CreateTaskStatus(groupID, task, kflow)
 		}
 	case "Manual":
-		// Manual 类型：由用户自定义，可以用元数据来分配任务到组
-		// 示例：按任务名称进行分组（假设用户已经在任务描述里提供了分组策略）
 		for i, task := range kflow.Spec.Tasks {
 			groupID := i / groupPolicy.MaxTasks
 			groupedTasks[groupID] = append(groupedTasks[groupID], task)
 			kflow.Status.Tasks[task.Name] = r.CreateTaskStatus(groupID, task, kflow)
+		}*/
+	case "FaasFLOW":
+		Tasks := kflow.Spec.Tasks
+		type cPathEdge struct {
+			Start    kflowiov1alpha1.TaskSpec
+			End      kflowiov1alpha1.TaskSpec
+			execTime int
 		}
+		type groupedNode struct {
+			task kflowiov1alpha1.TaskSpec
+			id   int
+		}
+		ctrl.Log.Info("start schedule FaasFlow")
+		groupedNodes := make(map[string]groupedNode, 0)
+		maxTasks := kflow.Spec.GroupPolicy.MaxTasks
+		id := 0
+		CheckIfGrouped := func(task kflowiov1alpha1.TaskSpec) bool {
+			ctrl.Log.Info("CheckIfGrouped",
+				"task name", task.Name,
+				"group id", groupedNodes[task.Name].id)
+			if groupedNodes[task.Name].id == 0 {
+				ctrl.Log.Info("Not grouped")
+				return false
+			}
+			ctrl.Log.Info("Is grouped")
+			return true
+		}
+		CheckIfLessThanLimit := func(sid int, eid int) bool {
+			return len(groupedTasks[sid])+len(groupedTasks[eid]) < maxTasks
+		}
+		Merge := func(sid int, eid int) {
+			ctrl.Log.Info("merge two group",
+				"start group id", sid,
+				"end group id", eid)
+			groupedTasks[sid] = append(groupedTasks[sid], groupedTasks[eid]...)
+			for _, task := range groupedTasks[eid] {
+				newGroupedNode := groupedNode{
+					task: groupedNodes[task.Name].task,
+					id:   eid,
+				}
+				groupedNodes[task.Name] = newGroupedNode
+			}
+			delete(groupedTasks, eid)
+		}
+		cPath := make([]cPathEdge, 0)
+		cPathCout := 0
+
+		for _, task := range Tasks {
+			for _, ntask := range task.Nexts {
+				cPathCout++
+				edge := cPathEdge{
+					Start:    task,
+					End:      kflow.Spec.Tasks[ntask],
+					execTime: task.ExecTime,
+				}
+				//ctrl.Log.Info("build edge",
+				//	"start", task.Name,
+				//	"end", ntask,
+				//	"exectime", task.ExecTime)
+				cPath = append(cPath, edge)
+			}
+		}
+		sort.Slice(cPath, func(i, j int) bool {
+			return cPath[i].execTime > cPath[j].execTime
+		})
+		//for _, edge := range cPath {
+		//	ctrl.Log.Info("exec ",
+		//		"time", edge.execTime)
+		//}
+
+		for i := 0; i < cPathCout; i++ {
+			ctrl.Log.Info("show current edge",
+				"start node name", cPath[i].Start.Name,
+				"start node id", groupedNodes[cPath[i].Start.Name].id,
+				"end node name", cPath[i].End.Name,
+				"end node id", groupedNodes[cPath[i].End.Name].id)
+			if CheckIfGrouped(cPath[i].Start) && CheckIfGrouped(cPath[i].End) {
+				sid := groupedNodes[cPath[i].Start.Name].id
+				eid := groupedNodes[cPath[i].End.Name].id
+				if CheckIfLessThanLimit(sid, eid) {
+					Merge(sid, eid)
+				}
+			} else if CheckIfGrouped(cPath[i].Start) {
+				curid := groupedNodes[cPath[i].Start.Name].id
+				if len(groupedTasks[curid]) < maxTasks {
+					groupedTasks[curid] = append(groupedTasks[curid], cPath[i].End)
+					NewNode := groupedNodes[cPath[i].End.Name]
+					NewNode = groupedNode{
+						id:   curid,
+						task: cPath[i].End,
+					}
+					groupedNodes[cPath[i].End.Name] = NewNode
+					ctrl.Log.Info("add End node into Start group",
+						"start node", cPath[i].Start.Name,
+						"start node id", groupedNodes[cPath[i].Start.Name].id,
+						"end node", cPath[i].End,
+						"end node id", groupedNodes[cPath[i].End.Name].id)
+				}
+
+			} else if CheckIfGrouped(cPath[i].End) {
+				curid := groupedNodes[cPath[i].End.Name].id
+				if len(groupedTasks[curid]) < maxTasks {
+					groupedTasks[curid] = append(groupedTasks[curid], cPath[i].Start)
+					NewNode := groupedNodes[cPath[i].Start.Name]
+					NewNode = groupedNode{
+						id:   curid,
+						task: cPath[i].Start,
+					}
+					groupedNodes[cPath[i].Start.Name] = NewNode
+					ctrl.Log.Info("add Start node into End group",
+						"start node", cPath[i].Start.Name,
+						"start node id", groupedNodes[cPath[i].Start.Name].id,
+						"end node", cPath[i].End,
+						"end node id", groupedNodes[cPath[i].End.Name].id)
+				}
+			} else {
+				id++
+				ctrl.Log.Info("two tasks not grouped",
+					"task1", cPath[i].Start.Name,
+					"task2", cPath[i].End.Name,
+					"group id", id)
+				groupedTasks[id] = append(groupedTasks[id], cPath[i].Start)
+				groupedTasks[id] = append(groupedTasks[id], cPath[i].End)
+				groupedNodes[cPath[i].Start.Name] = groupedNode{
+					task: cPath[i].Start,
+					id:   id,
+				}
+				groupedNodes[cPath[i].End.Name] = groupedNode{
+					task: cPath[i].End,
+					id:   id,
+				}
+			}
+		}
+		for _, task := range kflow.Spec.Tasks {
+			ctrl.Log.Info("Last check if omit",
+				"task name", task.Name,
+				"id", groupedNodes[task.Name].id)
+			if groupedNodes[task.Name].id == 0 {
+				ctrl.Log.Info("task not grouped",
+					"task name", task.Name)
+				id++
+				OmitTask := groupedNode{
+					id:   id,
+					task: task,
+				}
+				groupedNodes[OmitTask.task.Name] = OmitTask
+			}
+		}
+		groupedTasks = make(map[int][]kflowiov1alpha1.TaskSpec)
+		for _, node := range groupedNodes {
+			ctrl.Log.Info("grouped node",
+				"node name ", node.task.Name,
+				"group id", node.id)
+			groupedTasks[node.id] = append(groupedTasks[node.id], node.task)
+			kflow.Status.Tasks[node.task.Name] = r.CreateTaskStatus((node.id)%3, node.task, kflow)
+		}
+
 	default:
 		return nil
 	}
@@ -219,32 +366,31 @@ func hashDataPath(s string) int {
 }
 
 // scheduleTasks 为每个任务组选择一个节点，并为任务创建 Pod
-func (r *KflowReconciler) scheduleTasks(kflow *v1alpha1.Kflow, taskName string) error {
+func (r *KflowReconciler) scheduleTasks(kflow *v1alpha1.Kflow, taskSpec kflowiov1alpha1.TaskSpec, taskStatus kflowiov1alpha1.TaskStatus) error {
 	ctrl.Log.Info("Start schedule Tasks")
 
 	// 为每个任务创建 Pod
-	if kflow.Status.Tasks[taskName].Status == "completed" {
-		log.Log.Info("task completed", "task name", taskName, "status", kflow.Status.Tasks[taskName])
+	if taskStatus.Status == "completed" {
+		log.Log.Info("task completed", "task name", taskSpec.Name, "status", taskStatus)
 		return nil
 	}
-	if r.CheckDependsStatus(*kflow, kflow.Status.Tasks[taskName].Task) {
-		TaskSpec := kflow.Status.Tasks[taskName].Task
-		ctrl.Log.Info("start build pod", "task name", TaskSpec.Name)
+	if r.CheckDependsStatus(*kflow, taskStatus.Task) {
+		ctrl.Log.Info("start build pod", "task name", taskSpec.Name)
 		pod := &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      fmt.Sprintf("%s-%s", kflow.Name, TaskSpec.Name),
+				Name:      fmt.Sprintf("%s-%s", kflow.Name, taskSpec.Name),
 				Namespace: "kflow-worker",
 			},
 			Spec: corev1.PodSpec{
 				RestartPolicy: corev1.RestartPolicyNever,
 				NodeSelector: map[string]string{
-					"kubernetes.io/hostname": kflow.Status.Tasks[TaskSpec.Name].Node, // 替换为目标节点的名称
+					"kubernetes.io/hostname": taskStatus.Node,
 				},
 				Containers: []corev1.Container{
 					{
-						Name:    TaskSpec.Name,
-						Image:   TaskSpec.Image, // 需要替换为实际的任务镜像
-						Command: TaskSpec.Command,
+						Name:    taskSpec.Name,
+						Image:   taskSpec.Image,
+						Command: taskSpec.Command,
 					},
 				},
 				//Affinity: &corev1.Affinity{
@@ -271,10 +417,10 @@ func (r *KflowReconciler) scheduleTasks(kflow *v1alpha1.Kflow, taskName string) 
 		if err := r.Create(context.Background(), pod); err != nil {
 			return err
 		}
-		taskStatus := kflow.Status.Tasks[TaskSpec.Name]
+		taskStatus := kflow.Status.Tasks[taskSpec.Name]
 		taskStatus.Pod = pod.Name
 		taskStatus.Status = "Running"
-		kflow.Status.Tasks[TaskSpec.Name] = taskStatus
+		kflow.Status.Tasks[taskSpec.Name] = taskStatus
 	}
 
 	return nil
@@ -284,20 +430,16 @@ func (r *KflowReconciler) CheckDependsStatus(kflow kflowiov1alpha1.Kflow, TaskSp
 	log.Log.Info("Check Depends Status",
 		"current task", TaskSpec.Name)
 	depends := kflow.Status.Tasks[TaskSpec.Name].Depends
-	for _, taskName := range depends {
+	for _, task := range depends {
 		log.Log.Info("check Depend",
-			"depend name", taskName,
-			"status", kflow.Status.Tasks[taskName].Status)
-		if kflow.Status.Tasks[taskName].Status != "completed" {
+			"depend name", task,
+			"status", kflow.Status.Tasks[task].Status)
+		if kflow.Status.Tasks[task].Status != "completed" {
 			return false
 		}
 	}
 	return true
 }
-
-//func (r *KflowReconciler) SetTaskStatus(kflow kflowiov1alpha1.Kflow, pod corev1.Pod) error {
-//
-//}
 
 // createGroupStatus 生成每个组的状态
 func (r *KflowReconciler) SetGroupStatus(groupedTasks map[int][]kflowiov1alpha1.TaskSpec, status string) []v1alpha1.GroupStatus {
@@ -331,7 +473,7 @@ func (r *KflowReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				pod := e.ObjectNew.(*corev1.Pod)
 
 				// 使用正则表达式匹配 Pod 名称是否以 "kflow-sample-" 为前缀
-				matched, _ := regexp.MatchString("^kflow-sample-", pod.GetName())
+				matched, _ := regexp.MatchString("kflow-sample-", pod.GetName())
 				if !matched {
 					return false // 只处理名称以 "kflow-sample-" 开头的 Pod
 				}

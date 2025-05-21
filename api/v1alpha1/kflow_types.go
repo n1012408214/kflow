@@ -26,7 +26,8 @@ import (
 // KflowSpec defines the desired state of Kflow.
 type KflowSpec struct {
 	// 任务定义
-	Tasks []TaskSpec `json:"tasks"`
+	RequestID string              `json:"requestID,omitempty"`
+	Tasks     map[string]TaskSpec `json:"tasks"`
 
 	// 分组策略（新增字段）
 	GroupPolicy GroupPolicy `json:"groupPolicy"`
@@ -40,10 +41,11 @@ type GroupPolicy struct {
 type TaskSpec struct {
 	Name    string   `json:"name"`
 	Image   string   `json:"image"`
-	Command []string `json:"command"`
+	Command []string `json:"command,omitempty"`
 
 	// +optional
-	Args []string `json:"args,omitempty"`
+	Args     []string `json:"args,omitempty"`
+	ExecTime int      `json:"execTime,omitempty"`
 
 	// +optional
 	Depends []string `json:"depends,omitempty"` //
@@ -52,6 +54,7 @@ type TaskSpec struct {
 	// 数据路径（与 Volume 绑定）
 	InputPath  string `json:"inputPath,omitempty"`  // 例如 /data/input
 	OutputPath string `json:"outputPath,omitempty"` // 例如 /data/output
+
 }
 
 type KflowStatus struct {
@@ -68,17 +71,17 @@ type GroupStatus struct {
 	GroupID        int          `json:"groupId"`
 	Tasks          []TaskSpec   `json:"tasks"`  // 任务列表
 	Status         string       `json:"status"` // Pending | Running | Succeeded | Failed
-	StartTime      *metav1.Time `json:"startTime,omitempty"`
-	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
+	GroupStartTime *metav1.Time `json:"startTime,omitempty"`
 }
 
 type TaskStatus struct {
 	Task    TaskSpec `json:"task"`
-	Status  string   `json:"status"`
-	Node    string   `json:"node"`
 	Pod     string   `json:"pod,omitempty"`
 	Depends []string `json:"depends,omitempty"`
 	Nexts   []string `json:"nexts,omitempty"`
+
+	Node   string `json:"node"`
+	Status string `json:"status"`
 }
 
 // +kubebuilder:object:root=true
