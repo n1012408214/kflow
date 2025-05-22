@@ -28,6 +28,7 @@ import (
 	"apiserver/api/v1alpha1"
 	kflowiov1alpha1 "apiserver/api/v1alpha1"
 
+	"github.com/go-redis/redis/v8"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -132,6 +133,7 @@ func (r *KflowReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 				log.Error(err, "Failed to group tasks")
 				return reconcile.Result{}, err
 			}
+
 			log.Info("Start schedule task0")
 			task := kflow.Spec.Tasks["task1"]
 			err = r.scheduleTasks(&kflow, task, kflow.Status.Tasks[task.Name])
@@ -194,28 +196,28 @@ func (r *KflowReconciler) groupTasks(kflow *v1alpha1.Kflow) error {
 			task kflowiov1alpha1.TaskSpec
 			id   int
 		}
-		ctrl.Log.Info("start schedule FaasFlow")
+		//ctrl.Log.Info("start schedule FaasFlow")
 		groupedNodes := make(map[string]groupedNode, 0)
 		maxTasks := kflow.Spec.GroupPolicy.MaxTasks
 		id := 0
 		CheckIfGrouped := func(task kflowiov1alpha1.TaskSpec) bool {
-			ctrl.Log.Info("CheckIfGrouped",
-				"task name", task.Name,
-				"group id", groupedNodes[task.Name].id)
+			//ctrl.Log.Info("CheckIfGrouped",
+			//	"task name", task.Name,
+			//	"group id", groupedNodes[task.Name].id)
 			if groupedNodes[task.Name].id == 0 {
-				ctrl.Log.Info("Not grouped")
+				//ctrl.Log.Info("Not grouped")
 				return false
 			}
-			ctrl.Log.Info("Is grouped")
+			//ctrl.Log.Info("Is grouped")
 			return true
 		}
 		CheckIfLessThanLimit := func(sid int, eid int) bool {
 			return len(groupedTasks[sid])+len(groupedTasks[eid]) < maxTasks
 		}
 		Merge := func(sid int, eid int) {
-			ctrl.Log.Info("merge two group",
-				"start group id", sid,
-				"end group id", eid)
+			//ctrl.Log.Info("merge two group",
+			//	"start group id", sid,
+			//	"end group id", eid)
 			groupedTasks[sid] = append(groupedTasks[sid], groupedTasks[eid]...)
 			for _, task := range groupedTasks[eid] {
 				newGroupedNode := groupedNode{
@@ -253,11 +255,11 @@ func (r *KflowReconciler) groupTasks(kflow *v1alpha1.Kflow) error {
 		//}
 
 		for i := 0; i < cPathCout; i++ {
-			ctrl.Log.Info("show current edge",
-				"start node name", cPath[i].Start.Name,
-				"start node id", groupedNodes[cPath[i].Start.Name].id,
-				"end node name", cPath[i].End.Name,
-				"end node id", groupedNodes[cPath[i].End.Name].id)
+			//ctrl.Log.Info("show current edge",
+			//	"start node name", cPath[i].Start.Name,
+			//	"start node id", groupedNodes[cPath[i].Start.Name].id,
+			//	"end node name", cPath[i].End.Name,
+			//	"end node id", groupedNodes[cPath[i].End.Name].id)
 			if CheckIfGrouped(cPath[i].Start) && CheckIfGrouped(cPath[i].End) {
 				sid := groupedNodes[cPath[i].Start.Name].id
 				eid := groupedNodes[cPath[i].End.Name].id
@@ -274,11 +276,11 @@ func (r *KflowReconciler) groupTasks(kflow *v1alpha1.Kflow) error {
 						task: cPath[i].End,
 					}
 					groupedNodes[cPath[i].End.Name] = NewNode
-					ctrl.Log.Info("add End node into Start group",
-						"start node", cPath[i].Start.Name,
-						"start node id", groupedNodes[cPath[i].Start.Name].id,
-						"end node", cPath[i].End,
-						"end node id", groupedNodes[cPath[i].End.Name].id)
+					//ctrl.Log.Info("add End node into Start group",
+					//	"start node", cPath[i].Start.Name,
+					//	"start node id", groupedNodes[cPath[i].Start.Name].id,
+					//	"end node", cPath[i].End,
+					//	"end node id", groupedNodes[cPath[i].End.Name].id)
 				}
 
 			} else if CheckIfGrouped(cPath[i].End) {
@@ -291,18 +293,18 @@ func (r *KflowReconciler) groupTasks(kflow *v1alpha1.Kflow) error {
 						task: cPath[i].Start,
 					}
 					groupedNodes[cPath[i].Start.Name] = NewNode
-					ctrl.Log.Info("add Start node into End group",
-						"start node", cPath[i].Start.Name,
-						"start node id", groupedNodes[cPath[i].Start.Name].id,
-						"end node", cPath[i].End,
-						"end node id", groupedNodes[cPath[i].End.Name].id)
+					//ctrl.Log.Info("add Start node into End group",
+					//	"start node", cPath[i].Start.Name,
+					//	"start node id", groupedNodes[cPath[i].Start.Name].id,
+					//	"end node", cPath[i].End,
+					//	"end node id", groupedNodes[cPath[i].End.Name].id)
 				}
 			} else {
 				id++
-				ctrl.Log.Info("two tasks not grouped",
-					"task1", cPath[i].Start.Name,
-					"task2", cPath[i].End.Name,
-					"group id", id)
+				//ctrl.Log.Info("two tasks not grouped",
+				//	"task1", cPath[i].Start.Name,
+				//	"task2", cPath[i].End.Name,
+				//	"group id", id)
 				groupedTasks[id] = append(groupedTasks[id], cPath[i].Start)
 				groupedTasks[id] = append(groupedTasks[id], cPath[i].End)
 				groupedNodes[cPath[i].Start.Name] = groupedNode{
@@ -316,12 +318,12 @@ func (r *KflowReconciler) groupTasks(kflow *v1alpha1.Kflow) error {
 			}
 		}
 		for _, task := range kflow.Spec.Tasks {
-			ctrl.Log.Info("Last check if omit",
-				"task name", task.Name,
-				"id", groupedNodes[task.Name].id)
+			//ctrl.Log.Info("Last check if omit",
+			//	"task name", task.Name,
+			//	"id", groupedNodes[task.Name].id)
 			if groupedNodes[task.Name].id == 0 {
-				ctrl.Log.Info("task not grouped",
-					"task name", task.Name)
+				//ctrl.Log.Info("task not grouped",
+				//	"task name", task.Name)
 				id++
 				OmitTask := groupedNode{
 					id:   id,
@@ -332,9 +334,9 @@ func (r *KflowReconciler) groupTasks(kflow *v1alpha1.Kflow) error {
 		}
 		groupedTasks = make(map[int][]kflowiov1alpha1.TaskSpec)
 		for _, node := range groupedNodes {
-			ctrl.Log.Info("grouped node",
-				"node name ", node.task.Name,
-				"group id", node.id)
+			//ctrl.Log.Info("grouped node",
+			//	"node name ", node.task.Name,
+			//	"group id", node.id)
 			groupedTasks[node.id] = append(groupedTasks[node.id], node.task)
 			kflow.Status.Tasks[node.task.Name] = r.CreateTaskStatus((node.id)%3, node.task, kflow)
 		}
@@ -376,6 +378,7 @@ func (r *KflowReconciler) scheduleTasks(kflow *v1alpha1.Kflow, taskSpec kflowiov
 	}
 	if r.CheckDependsStatus(*kflow, taskStatus.Task) {
 		ctrl.Log.Info("start build pod", "task name", taskSpec.Name)
+		r.ProcessData(taskSpec, taskStatus)
 		pod := &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      fmt.Sprintf("%s-%s", kflow.Name, taskSpec.Name),
@@ -393,23 +396,6 @@ func (r *KflowReconciler) scheduleTasks(kflow *v1alpha1.Kflow, taskSpec kflowiov
 						Command: taskSpec.Command,
 					},
 				},
-				//Affinity: &corev1.Affinity{
-				//	NodeAffinity: &corev1.NodeAffinity{
-				//		RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-				//			NodeSelectorTerms: []corev1.NodeSelectorTerm{
-				//				{
-				//					MatchExpressions: []corev1.NodeSelectorRequirement{
-				//						{
-				//							Key:      "kubernetes.io/hostname",
-				//							Operator: corev1.NodeSelectorOpIn,
-				//							Values:   []string{nodeName},
-				//						},
-				//					},
-				//				},
-				//			},
-				//		},
-				//	},
-				//},
 			},
 		}
 
@@ -485,4 +471,19 @@ func (r *KflowReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		}).
 		Complete(r)
 	return err
+}
+
+func (r *KflowReconciler) ProcessData(taskSpec kflowiov1alpha1.TaskSpec, taskStatus kflowiov1alpha1.TaskStatus) {
+
+	ctx := context.Background()
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     "127.0.0.1:6379", // Redis 地址
+		Password: "",               // 没有密码
+		DB:       0,                // 默认 DB 0
+	})
+	_, err := rdb.Ping(ctx).Result()
+	if err != nil {
+		ctrl.Log.Error(err, "无法连接到 Redis")
+	}
+	fmt.Println("成功连接到 Redis")
 }
