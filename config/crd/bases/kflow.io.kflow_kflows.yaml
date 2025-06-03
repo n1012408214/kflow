@@ -73,7 +73,7 @@ spec:
                     image:
                       type: string
                     inputPath:
-                      description: 数据路径（与 Volume 绑定）
+                      description: 数据�?径（�? Volume 绑定�?
                       type: string
                     name:
                       type: string
@@ -99,13 +99,17 @@ spec:
                   type: string
                 type: array
               grouped:
-                description: 记录每个组的状态
+                description: 记录每个组的状�?
                 type: boolean
               groups:
                 items:
                   properties:
                     groupId:
                       type: integer
+                    node:
+                      type: string
+                    pvc:
+                      type: string
                     startTime:
                       format: date-time
                       type: string
@@ -131,7 +135,7 @@ spec:
                           image:
                             type: string
                           inputPath:
-                            description: 数据路径（与 Volume 绑定）
+                            description: 数据�?径（�? Volume 绑定�?
                             type: string
                           name:
                             type: string
@@ -148,12 +152,17 @@ spec:
                       type: array
                   required:
                   - groupId
+                  - node
                   - status
                   - tasks
                   type: object
                 type: array
               phase:
                 type: string
+              pv:
+                additionalProperties:
+                  type: string
+                type: object
               tasks:
                 additionalProperties:
                   properties:
@@ -190,7 +199,7 @@ spec:
                         image:
                           type: string
                         inputPath:
-                          description: 数据路径（与 Volume 绑定）
+                          description: 数据�?径（�? Volume 绑定�?
                           type: string
                         name:
                           type: string
@@ -203,6 +212,62 @@ spec:
                       required:
                       - image
                       - name
+                      type: object
+                    taskPvcName:
+                      type: string
+                    tasksGroup:
+                      properties:
+                        groupId:
+                          type: integer
+                        node:
+                          type: string
+                        pvc:
+                          type: string
+                        startTime:
+                          format: date-time
+                          type: string
+                        status:
+                          type: string
+                        tasks:
+                          items:
+                            properties:
+                              args:
+                                items:
+                                  type: string
+                                type: array
+                              command:
+                                items:
+                                  type: string
+                                type: array
+                              depends:
+                                items:
+                                  type: string
+                                type: array
+                              execTime:
+                                type: integer
+                              image:
+                                type: string
+                              inputPath:
+                                description: 数据�?径（�? Volume 绑定�?
+                                type: string
+                              name:
+                                type: string
+                              nexts:
+                                items:
+                                  type: string
+                                type: array
+                              outputPath:
+                                type: string
+                            required:
+                            - image
+                            - name
+                            type: object
+                          type: array
+                      required:
+                      - groupId
+                      - node
+                      - status
+                      - tasks
                       type: object
                   required:
                   - node

@@ -24,12 +24,15 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"apiserver/api/v1alpha1"
 	kflowiov1alpha1 "apiserver/api/v1alpha1"
 
 	"github.com/go-redis/redis/v8"
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -72,30 +75,40 @@ func (r *KflowReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 			log.Info("is task pod",
 				"pod name", pod.Name)
 			parts := strings.Split(pod.Name, "-")
+			taskName := parts[2]
+			var pvList corev1.PersistentVolumeList
+			err := r.Client.List(ctx, &pvList, &client.ListOptions{
+				Namespace: req.Namespace,
+			})
+			//for _, pvc := range pvList.Items {
+			//	ctrl.Log.Info("PV List",
+			//		"name", pvc.Name,
+			//		"spec", pvc.Spec)
+			//}
 
 			var kflow kflowiov1alpha1.Kflow
 			kflowKey := types.NamespacedName{
 				Name:      "kflow-sample", // 假设 Kflow 资源的名称为 "kflow-sample"
 				Namespace: "default",      // 假设 Kflow 资源的命名空间为 "default"
 			}
-			err := r.Get(ctx, kflowKey, &kflow)
+			err = r.Get(ctx, kflowKey, &kflow)
 			if kflow.Status.Tasks == nil {
 				log.Info("Status update not ready")
 				return reconcile.Result{}, err
 			}
-			log.Info("show task status",
-				"task name", parts[2],
-				"task status", kflow.Status.Tasks[parts[2]])
+			//log.Info("show task status",
+			//	"task name", parts[2],
+			//	"task status", kflow.Status.Tasks[parts[2]])
 
-			taskStautus := kflow.Status.Tasks[parts[2]]
-			taskStautus.Status = "completed"
-			kflow.Status.Tasks[parts[2]] = taskStautus
-			if err := r.Status().Update(ctx, &kflow); err != nil {
-				log.Error(err, "Failed to update Kflow status")
-				return reconcile.Result{}, err
-			}
+			taskStatus := kflow.Status.Tasks[taskName]
+			taskStatus.Status = "completed"
+			kflow.Status.Tasks[taskName] = taskStatus
+			//if err := r.Status().Update(ctx, &kflow); err != nil {
+			//	log.Error(err, "Failed to update Kflow status")
+			//	return reconcile.Result{}, err
+			//}
 
-			for _, next := range taskStautus.Nexts {
+			for _, next := range kflow.Status.Tasks[taskName].Nexts {
 				log.Info("start schedule task", "task name", next)
 				err = r.scheduleTasks(&kflow, kflow.Spec.Tasks[next], kflow.Status.Tasks[next])
 				if err != nil {
@@ -109,33 +122,43 @@ func (r *KflowReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 	}
 	//kflow triger
 	if err_kflow == nil && err_pod != nil {
-		log.Info("is kflow")
 
 		if kflow.Status.Grouped == false {
+			log.Info("is kflow")
 			ctrl.Log.Info("start group nodes")
 			nodeList := &corev1.NodeList{}
 			if err := r.List(context.Background(), nodeList); err != nil {
 				return reconcile.Result{}, err
 			}
-			groupCount := len(nodeList.Items)
-			ctrl.Log.Info("show node count", "node count", groupCount)
+			ctrl.Log.Info("show node count", "node count", len(nodeList.Items))
 
-			kflow.Status.GroupNodes = make([]string, groupCount)
+			kflow.Status.Nodes = make([]string, len(nodeList.Items))
 			kflow.Status.Tasks = make(map[string]kflowiov1alpha1.TaskStatus)
+			kflow.Status.Pv = make(map[string]string)
 
-			for i := 0; i < groupCount; i++ {
+			for i := 0; i < len(nodeList.Items); i++ {
 				selectedNode := nodeList.Items[i].Name
-				kflow.Status.GroupNodes[i] = selectedNode
+				kflow.Status.Pv[selectedNode] = r.CreatePV(ctx, selectedNode).Name
+				kflow.Status.Nodes[i] = selectedNode
 			}
 
-			err := r.groupTasks(&kflow)
+			err := r.groupTasks(ctx, &kflow, *nodeList)
 			if err != nil {
 				log.Error(err, "Failed to group tasks")
 				return reconcile.Result{}, err
 			}
+			//if err := r.Status().Update(ctx, &kflow); err != nil {
+			//	log.Error(err, "Failed to update Kflow status")
+			//	return reconcile.Result{}, err
+			//}
 
 			log.Info("Start schedule task0")
 			task := kflow.Spec.Tasks["task1"]
+			//for _, group := range kflow.Status.Groups {
+			//	ctrl.Log.Info("show groups", "group", group)
+			//}
+			//ctrl.Log.Info("show task", "task status", kflow.Status.Tasks[task.Name])
+			//ctrl.Log.Info("show task pvc", "task pvc", kflow.Status.Tasks[task.Name].Group.Pvc)
 			err = r.scheduleTasks(&kflow, task, kflow.Status.Tasks[task.Name])
 			if err != nil {
 				log.Error(err, "Failed to schedule tasks")
@@ -157,7 +180,7 @@ func (r *KflowReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 	return reconcile.Result{}, nil
 }
 
-func (r *KflowReconciler) groupTasks(kflow *v1alpha1.Kflow) error {
+func (r *KflowReconciler) groupTasks(ctx context.Context, kflow *v1alpha1.Kflow, nodeList corev1.NodeList) error {
 	ctrl.Log.Info("Start group Tasks")
 	groupedTasks := make(map[int][]kflowiov1alpha1.TaskSpec)
 	kflow.Status.Groups = r.SetGroupStatus(groupedTasks, "pending")
@@ -338,26 +361,218 @@ func (r *KflowReconciler) groupTasks(kflow *v1alpha1.Kflow) error {
 			//	"node name ", node.task.Name,
 			//	"group id", node.id)
 			groupedTasks[node.id] = append(groupedTasks[node.id], node.task)
-			kflow.Status.Tasks[node.task.Name] = r.CreateTaskStatus((node.id)%3, node.task, kflow)
+
 		}
 
 	default:
 		return nil
 	}
 
-	kflow.Status.Groups = r.SetGroupStatus(groupedTasks, "runnning")
+	kflow.Status.Groups = r.SetGroupStatus(groupedTasks, "Createing")
+	ctrl.Log.Info("show groupTasks")
+	for i, group := range kflow.Status.Groups {
+		kflow.Status.Groups[i].Node = nodeList.Items[r.SelectNode(i)].Name
+		//kflow.Status.Groups[i].Tasks = groupedTasks[i]
+		kflow.Status.Groups[i].Pvc = r.CreatePVC(ctx, kflow.Status.Groups[i]).Name
+		//ctrl.Log.Info("show pvc", "pvc", kflow.Status.Groups[i].Pvc)
+		//ctrl.Log.Info("show group ", "group", kflow.Status.Groups[i])
+		for _, task := range group.Tasks {
+			kflow.Status.Tasks[task.Name] = r.CreateTaskStatus(kflow.Status.Groups[i], task, kflow.Status.Groups[i].Pvc)
+			//ctrl.Log.Info("show task status ", "task status", kflow.Status.Tasks[task.Name])
+		}
+	}
 	kflow.Status.Grouped = true
+	//if err := r.Status().Update(ctx, kflow); err != nil {
+	//	ctrl.Log.Error(err, "Failed to update Kflow status")
+	//}
 	return nil
 }
+func (r *KflowReconciler) CreatePVC(ctx context.Context, grouStatus kflowiov1alpha1.GroupStatus) corev1.PersistentVolumeClaim {
+	ctrl.Log.Info("start create pvc")
+	pvc := corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("group-%d-pvc", grouStatus.GroupID),
+			Namespace: "kflow-worker",
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: resource.MustParse("1Ki"),
+				},
+			},
+			VolumeName: fmt.Sprintf("node-%s-pv", grouStatus.Node),
+			AccessModes: []corev1.PersistentVolumeAccessMode{
+				corev1.ReadWriteMany,
+			},
+		},
+	}
+	err := r.Create(ctx, &pvc)
+	if err != nil {
+		ctrl.Log.Error(err, "Unable to create PersistentVolumeClaim")
+	}
+	timeout := time.After(30 * time.Second)
+	ticker := time.NewTicker(2 * time.Second) // 每 2 秒检查一次 PVC 状态
+	defer ticker.Stop()
 
-func (r *KflowReconciler) CreateTaskStatus(groupID int, task kflowiov1alpha1.TaskSpec, kflow *kflowiov1alpha1.Kflow) kflowiov1alpha1.TaskStatus {
+	for {
+		select {
+		case <-timeout:
+			ctrl.Log.Error(fmt.Errorf("timeout waiting for PVC to be bound"), "PVC creation timed out")
+			return pvc
+		case <-ticker.C:
+			// 获取 PV 的当前状态
+			var pvcStatus corev1.PersistentVolumeClaim
+			err := r.Get(ctx, types.NamespacedName{Name: pvc.Name, Namespace: pvc.Namespace}, &pvcStatus)
+			if err != nil {
+				ctrl.Log.Error(err, "Unable to get PVC status")
+				return pvc
+			}
+
+			// 检查 PVC 是否已绑定
+			if pvcStatus.Status.Phase == corev1.ClaimBound {
+				ctrl.Log.Info("PVC successfully created", "PVC", pvc.Name)
+				ctrl.Log.Info("show pvc", "pvc", pvc)
+				return pvc
+			}
+			// 如果 PVC 还没有绑定，继续等待
+			ctrl.Log.Info("PVC is still in Pending state", "PVC", pvc.Name)
+		}
+	}
+}
+func (r *KflowReconciler) CreatePV(ctx context.Context, node string) corev1.PersistentVolume {
+	ctrl.Log.Info("start create pv")
+	pv := corev1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("node-%s-pv", node),
+			Namespace: "kflow-worker",
+		},
+		Spec: corev1.PersistentVolumeSpec{
+			Capacity: corev1.ResourceList{
+				corev1.ResourceStorage: resource.MustParse("2Mi"),
+			},
+			AccessModes: []corev1.PersistentVolumeAccessMode{
+				corev1.ReadWriteMany,
+			},
+			NodeAffinity: &corev1.VolumeNodeAffinity{
+				Required: &corev1.NodeSelector{
+					NodeSelectorTerms: []corev1.NodeSelectorTerm{
+						{
+							MatchFields: []corev1.NodeSelectorRequirement{
+								corev1.NodeSelectorRequirement{
+									Key:      "metadata.name",
+									Operator: corev1.NodeSelectorOperator("In"),
+									Values:   []string{node},
+								},
+							},
+						},
+					},
+				},
+			},
+			VolumeMode: new(corev1.PersistentVolumeMode),
+			PersistentVolumeSource: v1.PersistentVolumeSource{
+				Local: &v1.LocalVolumeSource{
+					Path: "/home/docker/disk/kflow-test",
+				},
+			},
+			StorageClassName: "standard",
+		},
+	}
+	pvfs := corev1.PersistentVolumeFilesystem
+	pv.Spec.VolumeMode = &pvfs
+	err := r.Create(ctx, &pv)
+	if err != nil {
+		ctrl.Log.Error(err, "Unable to create PersistentVolume")
+	}
+
+	//轮循等待PV创建完成
+	timeout := time.After(30 * time.Second)
+	ticker := time.NewTicker(2 * time.Second) // 每 2 秒检查一次 PVC 状态
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-timeout:
+			ctrl.Log.Error(fmt.Errorf("timeout waiting for PVC to be bound"), "PVC creation timed out")
+			return pv
+		case <-ticker.C:
+			// 获取 PV 的当前状态
+			var pvStatus corev1.PersistentVolume
+			err := r.Get(ctx, types.NamespacedName{Name: pv.Name, Namespace: pv.Namespace}, &pvStatus)
+			if err != nil {
+				ctrl.Log.Error(err, "Unable to get PVC status")
+				return pv
+			}
+
+			// 检查 PVC 是否已绑定
+			if pvStatus.Status.Phase == corev1.VolumeAvailable {
+				ctrl.Log.Info("PV successfully created", "PV", pv.Name)
+				return pv
+			}
+			// 如果 PVC 还没有绑定，继续等待
+			ctrl.Log.Info("PV is still in Pending state", "PV", pv.Name)
+		}
+	}
+}
+
+func (r *KflowReconciler) PullData(kflow kflowiov1alpha1.Kflow, taskSpec kflowiov1alpha1.TaskSpec, taskStatus kflowiov1alpha1.TaskStatus) {
+	taskPosition := taskStatus.Node
+	remoteTasks := make([]kflowiov1alpha1.TaskSpec, 0)
+	localTasks := make([]kflowiov1alpha1.TaskSpec, 0)
+	for _, depTask := range taskSpec.Depends {
+		if kflow.Status.Tasks[depTask].Node != taskPosition { //dep task 和当前task不在同一节点，需要远程读取
+			remoteTasks = append(remoteTasks, kflow.Status.Tasks[depTask].Task)
+		} else { //dep task和当前task在同一节点，本地读取
+			localTasks = append(localTasks, kflow.Status.Tasks[depTask].Task)
+		}
+	}
+	ctx := context.Background()
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     "192.168.2.149:6379", // Redis 地址
+		Password: "",                   // 没有密码
+		DB:       0,                    // 默认 DB 0
+	})
+	_, err := rdb.Ping(ctx).Result()
+	if err != nil {
+		ctrl.Log.Error(err, "无法连接到 Redis")
+	}
+	fmt.Println("成功连接到 Redis")
+	/*for _, remoteTask := range remoteTasks {
+		redisKey := fmt.Sprintf("data%s", remoteTask.Name)
+		raw, err := rdb.Get(ctx, redisKey).Bytes()
+		if err != nil {
+			panic(err)
+		}
+
+		var data map[string]interface{}
+		err = msgpack.Unmarshal(raw, &data)
+		if err != nil {
+			panic(err)
+		}
+	}*/
+}
+
+func (r *KflowReconciler) PushData(kflow kflowiov1alpha1.Kflow, taskSpec kflowiov1alpha1.TaskSpec, taskStatus kflowiov1alpha1.TaskStatus) {
+
+}
+
+func (r *KflowReconciler) SelectNode(id int) int {
+	return id % 3
+}
+func (r *KflowReconciler) CreateTaskStatus(group kflowiov1alpha1.GroupStatus, task kflowiov1alpha1.TaskSpec, pvcname string) kflowiov1alpha1.TaskStatus {
+	ctrl.Log.Info("Start Create task status")
 	taskstatus := kflowiov1alpha1.TaskStatus{
 		Task:    task,
 		Status:  "create",
-		Node:    kflow.Status.GroupNodes[groupID],
+		Node:    group.Node,
 		Depends: task.Depends,
 		Nexts:   task.Nexts,
+		Group:   group,
+		//TaskPVC:     group.Pvc,
+		TaskPVCName: pvcname,
 	}
+	//ctrl.Log.Info("show taskstatus.Group.Pvc", "pvc", taskstatus.Group.Pvc)
+	//ctrl.Log.Info("show taskstatus.Pvc", "pvc", taskstatus.TaskPVC)
+	//ctrl.Log.Info("show taskstatus.Pvc.Name", "pvc", taskstatus.TaskPVCName)
 	return taskstatus
 }
 
@@ -370,7 +585,8 @@ func hashDataPath(s string) int {
 // scheduleTasks 为每个任务组选择一个节点，并为任务创建 Pod
 func (r *KflowReconciler) scheduleTasks(kflow *v1alpha1.Kflow, taskSpec kflowiov1alpha1.TaskSpec, taskStatus kflowiov1alpha1.TaskStatus) error {
 	ctrl.Log.Info("Start schedule Tasks")
-
+	//ctrl.Log.Info("show tasks pvc", "pvc", taskStatus.TaskPVC)
+	//ctrl.Log.Info("show taskstatus.Pvc.name", "pvc name", taskStatus.TaskPVCName)
 	// 为每个任务创建 Pod
 	if taskStatus.Status == "completed" {
 		log.Log.Info("task completed", "task name", taskSpec.Name, "status", taskStatus)
@@ -378,7 +594,7 @@ func (r *KflowReconciler) scheduleTasks(kflow *v1alpha1.Kflow, taskSpec kflowiov
 	}
 	if r.CheckDependsStatus(*kflow, taskStatus.Task) {
 		ctrl.Log.Info("start build pod", "task name", taskSpec.Name)
-		r.ProcessData(taskSpec, taskStatus)
+		r.PullData(*kflow, taskSpec, taskStatus)
 		pod := &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      fmt.Sprintf("%s-%s", kflow.Name, taskSpec.Name),
@@ -389,11 +605,28 @@ func (r *KflowReconciler) scheduleTasks(kflow *v1alpha1.Kflow, taskSpec kflowiov
 				NodeSelector: map[string]string{
 					"kubernetes.io/hostname": taskStatus.Node,
 				},
+				Volumes: []corev1.Volume{
+					{
+						Name: taskSpec.Name,
+						VolumeSource: corev1.VolumeSource{
+							PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+								ClaimName: taskStatus.TaskPVCName,
+							},
+						},
+					},
+				},
 				Containers: []corev1.Container{
 					{
 						Name:    taskSpec.Name,
 						Image:   taskSpec.Image,
 						Command: taskSpec.Command,
+						VolumeMounts: []corev1.VolumeMount{
+							{
+								Name:      taskSpec.Name,
+								ReadOnly:  false,
+								MountPath: "/mnt/test",
+							},
+						},
 					},
 				},
 			},
@@ -427,7 +660,6 @@ func (r *KflowReconciler) CheckDependsStatus(kflow kflowiov1alpha1.Kflow, TaskSp
 	return true
 }
 
-// createGroupStatus 生成每个组的状态
 func (r *KflowReconciler) SetGroupStatus(groupedTasks map[int][]kflowiov1alpha1.TaskSpec, status string) []v1alpha1.GroupStatus {
 	var groups []v1alpha1.GroupStatus
 	for groupID, tasks := range groupedTasks {
@@ -471,19 +703,4 @@ func (r *KflowReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		}).
 		Complete(r)
 	return err
-}
-
-func (r *KflowReconciler) ProcessData(taskSpec kflowiov1alpha1.TaskSpec, taskStatus kflowiov1alpha1.TaskStatus) {
-
-	ctx := context.Background()
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     "127.0.0.1:6379", // Redis 地址
-		Password: "",               // 没有密码
-		DB:       0,                // 默认 DB 0
-	})
-	_, err := rdb.Ping(ctx).Result()
-	if err != nil {
-		ctrl.Log.Error(err, "无法连接到 Redis")
-	}
-	fmt.Println("成功连接到 Redis")
 }

@@ -5,6 +5,8 @@ docker tag $(docker image ls --format "{{.Repository}} {{.Tag}} {{.ID}} {{.Creat
 docker push crpi-2rclh8j1lqwo45m4.cn-qingdao.personal.cr.aliyuncs.com/mnikube/controller
 kubectl delete pod --all -n kflow-worker
 kubectl delete crd --all
+kubectl delete pv --all -n kflow-worker
+kubectl delete pvc --all -n kflow-worker
 kubectl apply -f ./config/crd/bases/kflow.io.kflow_kflows.yaml 
 kubectl apply -f /home/njl/kflow/config/samples/kflow.io_v1alpha1_kflow.yaml
 make deploy

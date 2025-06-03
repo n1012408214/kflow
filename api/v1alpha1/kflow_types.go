@@ -51,20 +51,21 @@ type TaskSpec struct {
 	Depends []string `json:"depends,omitempty"` //
 	Nexts   []string `json:"nexts,omitempty"`
 
-	// 数据路径（与 Volume 绑定）
-	InputPath  string `json:"inputPath,omitempty"`  // 例如 /data/input
-	OutputPath string `json:"outputPath,omitempty"` // 例如 /data/output
+	// 数据�?径（�? Volume 绑定�?
+	InputPath  string `json:"inputPath,omitempty"`  // 例�?? /data/input
+	OutputPath string `json:"outputPath,omitempty"` // 例�?? /data/output
 
 }
 
 type KflowStatus struct {
 	Phase string `json:"phase"` // Processing | Completed | Failed
 
-	// 记录每个组的状态
-	Grouped    bool                  `json:"grouped,omitempty"`
-	Groups     []GroupStatus         `json:"groups,omitempty"`
-	Tasks      map[string]TaskStatus `json:"tasks,omitempty"`
-	GroupNodes []string              `json:"groupNodes,omitempty"`
+	// 记录每个组的状�?
+	Grouped bool                  `json:"grouped,omitempty"`
+	Groups  []GroupStatus         `json:"groups,omitempty"`
+	Tasks   map[string]TaskStatus `json:"tasks,omitempty"`
+	Nodes   []string              `json:"groupNodes,omitempty"`
+	Pv      map[string]string     `json:"pv,omitempty"`
 }
 
 type GroupStatus struct {
@@ -72,16 +73,19 @@ type GroupStatus struct {
 	Tasks          []TaskSpec   `json:"tasks"`  // 任务列表
 	Status         string       `json:"status"` // Pending | Running | Succeeded | Failed
 	GroupStartTime *metav1.Time `json:"startTime,omitempty"`
+	Node           string       `json:"node"`
+	Pvc            string       `json:"pvc,omitempty"`
 }
 
 type TaskStatus struct {
-	Task    TaskSpec `json:"task"`
-	Pod     string   `json:"pod,omitempty"`
-	Depends []string `json:"depends,omitempty"`
-	Nexts   []string `json:"nexts,omitempty"`
-
-	Node   string `json:"node"`
-	Status string `json:"status"`
+	Task        TaskSpec    `json:"task"`
+	Pod         string      `json:"pod,omitempty"`
+	Depends     []string    `json:"depends,omitempty"`
+	Nexts       []string    `json:"nexts,omitempty"`
+	Group       GroupStatus `json:"tasksGroup,omitempty"`
+	Node        string      `json:"node"`
+	Status      string      `json:"status"`
+	TaskPVCName string      `json:"taskPvcName,omitempty"`
 }
 
 // +kubebuilder:object:root=true
