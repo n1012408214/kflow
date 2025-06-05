@@ -72,16 +72,17 @@ spec:
                       type: integer
                     image:
                       type: string
-                    inputPath:
-                      description: 数据�?径（�? Volume 绑定�?
-                      type: string
+                    inputfilename:
+                      items:
+                        type: string
+                      type: array
                     name:
                       type: string
                     nexts:
                       items:
                         type: string
                       type: array
-                    outputPath:
+                    outputfilename:
                       type: string
                   required:
                   - image
@@ -108,6 +109,10 @@ spec:
                       type: integer
                     node:
                       type: string
+                    pulledfiles:
+                      additionalProperties:
+                        type: boolean
+                      type: object
                     pvc:
                       type: string
                     startTime:
@@ -134,16 +139,17 @@ spec:
                             type: integer
                           image:
                             type: string
-                          inputPath:
-                            description: 数据�?径（�? Volume 绑定�?
-                            type: string
+                          inputfilename:
+                            items:
+                              type: string
+                            type: array
                           name:
                             type: string
                           nexts:
                             items:
                               type: string
                             type: array
-                          outputPath:
+                          outputfilename:
                             type: string
                         required:
                         - image
@@ -198,16 +204,17 @@ spec:
                           type: integer
                         image:
                           type: string
-                        inputPath:
-                          description: 数据�?径（�? Volume 绑定�?
-                          type: string
+                        inputfilename:
+                          items:
+                            type: string
+                          type: array
                         name:
                           type: string
                         nexts:
                           items:
                             type: string
                           type: array
-                        outputPath:
+                        outputfilename:
                           type: string
                       required:
                       - image
@@ -221,6 +228,10 @@ spec:
                           type: integer
                         node:
                           type: string
+                        pulledfiles:
+                          additionalProperties:
+                            type: boolean
+                          type: object
                         pvc:
                           type: string
                         startTime:
@@ -247,16 +258,17 @@ spec:
                                 type: integer
                               image:
                                 type: string
-                              inputPath:
-                                description: 数据�?径（�? Volume 绑定�?
-                                type: string
+                              inputfilename:
+                                items:
+                                  type: string
+                                type: array
                               name:
                                 type: string
                               nexts:
                                 items:
                                   type: string
                                 type: array
-                              outputPath:
+                              outputfilename:
                                 type: string
                             required:
                             - image

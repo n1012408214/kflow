@@ -51,10 +51,8 @@ type TaskSpec struct {
 	Depends []string `json:"depends,omitempty"` //
 	Nexts   []string `json:"nexts,omitempty"`
 
-	// 数据�?径（�? Volume 绑定�?
-	InputPath  string `json:"inputPath,omitempty"`  // 例�?? /data/input
-	OutputPath string `json:"outputPath,omitempty"` // 例�?? /data/output
-
+	InputFileName  []string `json:"inputfilename,omitempty"`
+	OutputFileName string   `json:"outputfilename,omitempty"`
 }
 
 type KflowStatus struct {
@@ -69,12 +67,13 @@ type KflowStatus struct {
 }
 
 type GroupStatus struct {
-	GroupID        int          `json:"groupId"`
-	Tasks          []TaskSpec   `json:"tasks"`  // 任务列表
-	Status         string       `json:"status"` // Pending | Running | Succeeded | Failed
-	GroupStartTime *metav1.Time `json:"startTime,omitempty"`
-	Node           string       `json:"node"`
-	Pvc            string       `json:"pvc,omitempty"`
+	GroupID        int             `json:"groupId"`
+	Tasks          []TaskSpec      `json:"tasks"`  // 任务列表
+	Status         string          `json:"status"` // Pending | Running | Succeeded | Failed
+	GroupStartTime *metav1.Time    `json:"startTime,omitempty"`
+	Node           string          `json:"node"`
+	Pvc            string          `json:"pvc,omitempty"`
+	PulledFiles    map[string]bool `json:"pulledfiles,omitempty"`
 }
 
 type TaskStatus struct {

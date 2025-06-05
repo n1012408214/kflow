@@ -29,7 +29,6 @@ import (
 	"apiserver/api/v1alpha1"
 	kflowiov1alpha1 "apiserver/api/v1alpha1"
 
-	"github.com/go-redis/redis/v8"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -69,9 +68,9 @@ func (r *KflowReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 	//pod triger
 	if err_pod == nil && err_kflow != nil {
 
-		if !strings.HasPrefix(pod.Name, "kflow-sample-") {
+		if !strings.HasPrefix(pod.Name, "kflow-sample-") || pod.Status.Phase != corev1.PodSucceeded {
 			return reconcile.Result{}, client.IgnoreNotFound(err_kflow)
-		} else {
+		} else if pod.Status.Phase == corev1.PodSucceeded {
 			log.Info("is task pod",
 				"pod name", pod.Name)
 			parts := strings.Split(pod.Name, "-")
@@ -107,10 +106,10 @@ func (r *KflowReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 			//	log.Error(err, "Failed to update Kflow status")
 			//	return reconcile.Result{}, err
 			//}
-
+			r.PushData(ctx, kflow, taskName)
 			for _, next := range kflow.Status.Tasks[taskName].Nexts {
 				log.Info("start schedule task", "task name", next)
-				err = r.scheduleTasks(&kflow, kflow.Spec.Tasks[next], kflow.Status.Tasks[next])
+				err = r.scheduleTasks(ctx, &kflow, kflow.Spec.Tasks[next], kflow.Status.Tasks[next])
 				if err != nil {
 					log.Error(err, "Failed to schedule tasks")
 					return reconcile.Result{}, err
@@ -159,7 +158,7 @@ func (r *KflowReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 			//}
 			//ctrl.Log.Info("show task", "task status", kflow.Status.Tasks[task.Name])
 			//ctrl.Log.Info("show task pvc", "task pvc", kflow.Status.Tasks[task.Name].Group.Pvc)
-			err = r.scheduleTasks(&kflow, task, kflow.Status.Tasks[task.Name])
+			err = r.scheduleTasks(ctx, &kflow, task, kflow.Status.Tasks[task.Name])
 			if err != nil {
 				log.Error(err, "Failed to schedule tasks")
 				return reconcile.Result{}, err
@@ -188,13 +187,15 @@ func (r *KflowReconciler) groupTasks(ctx context.Context, kflow *v1alpha1.Kflow,
 
 	switch groupPolicy.Type {
 	/*case "Level":
-		for i, task := range kflow.Spec.Tasks {
+		i := 0
+		for _, task := range kflow.Spec.Tasks {
 			groupID := i / groupPolicy.MaxTasks
 			groupedTasks[groupID] = append(groupedTasks[groupID], task)
 			kflow.Status.Tasks[task.Name] = r.CreateTaskStatus(groupID, task, kflow)
 			ctrl.Log.Info("show created status",
 				"task ", task.Name,
 				"status", kflow.Status.Tasks[task.Name])
+			i++
 		}
 	case "DataAffinity":
 		for _, task := range kflow.Spec.Tasks {
@@ -387,6 +388,7 @@ func (r *KflowReconciler) groupTasks(ctx context.Context, kflow *v1alpha1.Kflow,
 	//}
 	return nil
 }
+
 func (r *KflowReconciler) CreatePVC(ctx context.Context, grouStatus kflowiov1alpha1.GroupStatus) corev1.PersistentVolumeClaim {
 	ctrl.Log.Info("start create pvc")
 	pvc := corev1.PersistentVolumeClaim{
@@ -431,14 +433,15 @@ func (r *KflowReconciler) CreatePVC(ctx context.Context, grouStatus kflowiov1alp
 			// 检查 PVC 是否已绑定
 			if pvcStatus.Status.Phase == corev1.ClaimBound {
 				ctrl.Log.Info("PVC successfully created", "PVC", pvc.Name)
-				ctrl.Log.Info("show pvc", "pvc", pvc)
+				//ctrl.Log.Info("show pvc", "pvc", pvc)
 				return pvc
 			}
 			// 如果 PVC 还没有绑定，继续等待
-			ctrl.Log.Info("PVC is still in Pending state", "PVC", pvc.Name)
+			//ctrl.Log.Info("PVC is still in Pending state", "PVC", pvc.Name)
 		}
 	}
 }
+
 func (r *KflowReconciler) CreatePV(ctx context.Context, node string) corev1.PersistentVolume {
 	ctrl.Log.Info("start create pv")
 	pv := corev1.PersistentVolume{
@@ -514,50 +517,224 @@ func (r *KflowReconciler) CreatePV(ctx context.Context, node string) corev1.Pers
 	}
 }
 
-func (r *KflowReconciler) PullData(kflow kflowiov1alpha1.Kflow, taskSpec kflowiov1alpha1.TaskSpec, taskStatus kflowiov1alpha1.TaskStatus) {
-	taskPosition := taskStatus.Node
-	remoteTasks := make([]kflowiov1alpha1.TaskSpec, 0)
-	localTasks := make([]kflowiov1alpha1.TaskSpec, 0)
-	for _, depTask := range taskSpec.Depends {
-		if kflow.Status.Tasks[depTask].Node != taskPosition { //dep task 和当前task不在同一节点，需要远程读取
-			remoteTasks = append(remoteTasks, kflow.Status.Tasks[depTask].Task)
-		} else { //dep task和当前task在同一节点，本地读取
-			localTasks = append(localTasks, kflow.Status.Tasks[depTask].Task)
-		}
-	}
-	ctx := context.Background()
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     "192.168.2.149:6379", // Redis 地址
-		Password: "",                   // 没有密码
-		DB:       0,                    // 默认 DB 0
-	})
-	_, err := rdb.Ping(ctx).Result()
-	if err != nil {
-		ctrl.Log.Error(err, "无法连接到 Redis")
-	}
-	fmt.Println("成功连接到 Redis")
-	/*for _, remoteTask := range remoteTasks {
-		redisKey := fmt.Sprintf("data%s", remoteTask.Name)
-		raw, err := rdb.Get(ctx, redisKey).Bytes()
-		if err != nil {
-			panic(err)
-		}
+func (r *KflowReconciler) PullData(ctx context.Context, kflow kflowiov1alpha1.Kflow, taskSpec kflowiov1alpha1.TaskSpec, taskStatus kflowiov1alpha1.TaskStatus) {
+	ctrl.Log.Info("start PullData")
+	groupStatus := taskStatus.Group
+	//ctrl.Log.Info("group status", "status", groupStatus)
+	//ctrl.Log.Info("groupTaskSpecs", "status", groupTaskSpecs)
+	remote_data_name := make(map[string]bool)
 
-		var data map[string]interface{}
-		err = msgpack.Unmarshal(raw, &data)
-		if err != nil {
-			panic(err)
+	for _, depTask := range taskSpec.Depends {
+		depTaskStatus := kflow.Status.Tasks[depTask]
+		depTaskOutPutFileName := depTaskStatus.Task.OutputFileName
+		//nextTaskSpec := kflow.Status.Tasks[depTask].Task
+		//ctrl.Log.Info("nextTaskSpecs", "spec", nextTaskSpec)
+		//ctrl.Log.Info("nextTaskStatus", "status", nextTaskStatus)
+		if depTaskOutPutFileName != "" && depTaskStatus.Node != taskStatus.Node && groupStatus.PulledFiles[depTaskOutPutFileName] == false { //dep task 和当前task不在同一节点,且文件没有被pull过，需要远程读取
+			remote_data_name[depTaskOutPutFileName] = true
 		}
-	}*/
+	}
+	ctrl.Log.Info("PullDate remote_tasks", "remote_tasks", remote_data_name)
+	if len(remote_data_name) != 0 {
+		r.PullDataFromredis(ctx, remote_data_name, taskStatus.TaskPVCName, taskStatus.Node, taskSpec.Name)
+	}
 }
 
-func (r *KflowReconciler) PushData(kflow kflowiov1alpha1.Kflow, taskSpec kflowiov1alpha1.TaskSpec, taskStatus kflowiov1alpha1.TaskStatus) {
+func (r *KflowReconciler) PullDataFromredis(ctx context.Context, remote_datas map[string]bool, pvc string, node string, taskName string) {
+	ctrl.Log.Info("start PullDataFromredis")
+	redis_host := "192.168.2.149"
+	ifpull := false
+	var builder strings.Builder
+	for remote_data := range remote_datas {
+		//ctrl.Log.Info("pushdata redis taskspec", "task spec", taskSpec)
+		builder.WriteString(fmt.Sprintf("redis-cli -h %s -p 6379 --raw GET %s > /mnt/test/%s;", redis_host, remote_data, remote_data))
+		ifpull = true
+	}
+	if ifpull {
+		ctrl.Log.Info("start build redis-dealler-pod")
+		command := fmt.Sprintf("%s", builder.String())
 
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("redis-puller-pod-%s", taskName),
+				Namespace: "kflow-worker",
+			},
+			Spec: corev1.PodSpec{
+				RestartPolicy: corev1.RestartPolicyNever,
+				NodeSelector: map[string]string{
+					"kubernetes.io/hostname": node,
+				},
+				Containers: []corev1.Container{
+					{
+						Name:  "redis-pusher-container",
+						Image: "crpi-2rclh8j1lqwo45m4.cn-qingdao.personal.cr.aliyuncs.com/mnikube/redis-dealler:latest",
+						Command: []string{
+							"/bin/sh", "-c", command,
+							//"sh", "-c", "sleep 60",
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							{
+								Name:      pvc,
+								MountPath: "/mnt/test", // 挂载 PVC
+							},
+						},
+					},
+				},
+				Volumes: []corev1.Volume{
+					{
+						Name: pvc,
+						VolumeSource: corev1.VolumeSource{
+							PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{
+								ClaimName: pvc,
+							},
+						},
+					},
+				},
+			},
+		}
+		ctrl.Log.Info("start create redis-dealler-1 contrainer")
+		ctrl.Log.Info("pull data command", "command", pod.Spec.Containers[0].Command)
+		//ctrl.Log.Info("redis-dealler pod", "pod", pod)
+		if err := r.Create(ctx, pod); err != nil {
+			ctrl.Log.Error(err, "redis-dealler-1 contrainer create fail")
+		}
+		err := r.waitForPodToFinish(ctx, pod)
+		if err != nil {
+			ctrl.Log.Error(err, "redis-dealler-1 contrainer excute fail")
+		}
+	}
+}
+
+func (r *KflowReconciler) PushData(ctx context.Context, kflow v1alpha1.Kflow, taskName string) {
+	ctrl.Log.Info("start PushData")
+	group_tasks_status := true
+	groupStatus := kflow.Status.Tasks[taskName].Group
+	//ctrl.Log.Info("group status", "status", groupStatus)
+	groupTaskSpecs := groupStatus.Tasks
+	//ctrl.Log.Info("groupTaskSpecs", "status", groupTaskSpecs)
+	for _, taskSpec := range groupStatus.Tasks {
+		//taskStatus := kflow.Status.Tasks[taskSpec.Name].Status
+		//ctrl.Log.Info("group task status", "task name", taskSpec.Name, "task status", taskStatus)
+		if kflow.Status.Tasks[taskSpec.Name].Status != "completed" {
+			group_tasks_status = false
+			break
+		}
+	}
+	if group_tasks_status {
+		remote_data := make(map[string]bool)
+		for _, taskSpec := range groupTaskSpecs {
+			for _, nextTask := range taskSpec.Nexts {
+				nextTaskStatus := kflow.Status.Tasks[nextTask]
+				//nextTaskSpec := kflow.Status.Tasks[nextTask].Task
+				//ctrl.Log.Info("nextTaskSpecs", "spec", nextTaskSpec)
+				//ctrl.Log.Info("nextTaskStatus", "status", nextTaskStatus)
+				if nextTaskStatus.Node != groupStatus.Node && remote_data[taskSpec.OutputFileName] == false { //dep task 和当前task不在同一节点,且next task的input不为空，需要远程读取
+					remote_data[taskSpec.OutputFileName] = true
+					break
+				}
+			}
+		}
+		ctrl.Log.Info("remote and local tasks", "remote data name", remote_data)
+		r.PushDataToRedis(ctx, remote_data, groupStatus.Pvc, groupStatus.Node, groupStatus.GroupID)
+	}
+}
+
+func (r *KflowReconciler) PushDataToRedis(ctx context.Context, remote_datas map[string]bool, pvc string, node string, groupID int) {
+	ctrl.Log.Info("start PushDataToRedis")
+
+	redis_host := "192.168.2.149"
+	redis_port := "6379"
+	ifpush := false
+	var builder strings.Builder
+	for remote_data_name := range remote_datas {
+		//ctrl.Log.Info("pushdata redis taskspec", "task spec", taskSpec)
+		builder.WriteString(fmt.Sprintf("redis-cli -h %s -p %s SET  %s \"$(cat /mnt/test/%s)\";", redis_host, redis_port, remote_data_name, remote_data_name))
+		ifpush = true
+	}
+	if ifpush {
+		ctrl.Log.Info("start build redis-dealler-pod")
+		command := fmt.Sprintf("%s", builder.String())
+		//ctrl.Log.Info("command", "command", command)
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("redis-pusher-group-%d", groupID),
+				Namespace: "kflow-worker",
+			},
+			Spec: corev1.PodSpec{
+				RestartPolicy: corev1.RestartPolicyNever,
+				NodeSelector: map[string]string{
+					"kubernetes.io/hostname": node,
+				},
+				Containers: []corev1.Container{
+					{
+						Name:  "redis-pusher-container",
+						Image: "crpi-2rclh8j1lqwo45m4.cn-qingdao.personal.cr.aliyuncs.com/mnikube/redis-dealler:latest",
+						Command: []string{
+							"sh", "-c", command,
+							//"sh", "-c", "sleep 180",
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							{
+								Name:      pvc,
+								MountPath: "/mnt/test", // 挂载 PVC
+							},
+						},
+					},
+				},
+				Volumes: []corev1.Volume{
+					{
+						Name: pvc,
+						VolumeSource: corev1.VolumeSource{
+							PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{
+								ClaimName: pvc,
+							},
+						},
+					},
+				},
+			},
+		}
+		ctrl.Log.Info("start create redis-dealler contrainer")
+		ctrl.Log.Info("push data command", "command", pod.Spec.Containers[0].Command)
+		//ctrl.Log.Info("redis-dealler pod", "pod", pod)
+		if err := r.Create(ctx, pod); err != nil {
+			ctrl.Log.Error(err, "redis-dealler contrainer create fail")
+		}
+		err := r.waitForPodToFinish(ctx, pod)
+		if err != nil {
+			ctrl.Log.Error(err, "redis-dealler contrainer excute fail")
+		}
+	}
+}
+
+func (r *KflowReconciler) waitForPodToFinish(ctx context.Context, pod *corev1.Pod) error {
+	var p corev1.Pod
+	for {
+		err := r.Get(ctx, types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, &p)
+		for err != nil {
+			ctrl.Log.Info("pod not ready", "pod name", pod.Name)
+			time.Sleep(1 * time.Second)
+			err = r.Get(ctx, types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, &p)
+		}
+		switch p.Status.Phase {
+		case corev1.PodSucceeded:
+			return nil
+		case corev1.PodFailed:
+			return fmt.Errorf("pod failed with reason: %s", p.Status.Reason)
+		case corev1.PodRunning:
+			time.Sleep(1 * time.Second)
+		case corev1.PodPending:
+			ctrl.Log.Info("pod pending")
+			time.Sleep(1 * time.Second)
+		default:
+			return fmt.Errorf("unexpected pod phase: %s", p.Status.Phase)
+		}
+	}
 }
 
 func (r *KflowReconciler) SelectNode(id int) int {
 	return id % 3
 }
+
 func (r *KflowReconciler) CreateTaskStatus(group kflowiov1alpha1.GroupStatus, task kflowiov1alpha1.TaskSpec, pvcname string) kflowiov1alpha1.TaskStatus {
 	ctrl.Log.Info("Start Create task status")
 	taskstatus := kflowiov1alpha1.TaskStatus{
@@ -583,7 +760,7 @@ func hashDataPath(s string) int {
 }
 
 // scheduleTasks 为每个任务组选择一个节点，并为任务创建 Pod
-func (r *KflowReconciler) scheduleTasks(kflow *v1alpha1.Kflow, taskSpec kflowiov1alpha1.TaskSpec, taskStatus kflowiov1alpha1.TaskStatus) error {
+func (r *KflowReconciler) scheduleTasks(ctx context.Context, kflow *v1alpha1.Kflow, taskSpec kflowiov1alpha1.TaskSpec, taskStatus kflowiov1alpha1.TaskStatus) error {
 	ctrl.Log.Info("Start schedule Tasks")
 	//ctrl.Log.Info("show tasks pvc", "pvc", taskStatus.TaskPVC)
 	//ctrl.Log.Info("show taskstatus.Pvc.name", "pvc name", taskStatus.TaskPVCName)
@@ -594,7 +771,7 @@ func (r *KflowReconciler) scheduleTasks(kflow *v1alpha1.Kflow, taskSpec kflowiov
 	}
 	if r.CheckDependsStatus(*kflow, taskStatus.Task) {
 		ctrl.Log.Info("start build pod", "task name", taskSpec.Name)
-		r.PullData(*kflow, taskSpec, taskStatus)
+		r.PullData(context.Background(), *kflow, taskSpec, taskStatus)
 		pod := &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      fmt.Sprintf("%s-%s", kflow.Name, taskSpec.Name),
@@ -633,7 +810,7 @@ func (r *KflowReconciler) scheduleTasks(kflow *v1alpha1.Kflow, taskSpec kflowiov
 		}
 
 		ctrl.Log.Info("start create contrainer")
-		if err := r.Create(context.Background(), pod); err != nil {
+		if err := r.Create(ctx, pod); err != nil {
 			return err
 		}
 		taskStatus := kflow.Status.Tasks[taskSpec.Name]
