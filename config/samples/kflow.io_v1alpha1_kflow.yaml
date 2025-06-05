@@ -37,6 +37,8 @@ spec:
       name: task3
       image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/gcr.io/google-containers/busybox:1.27.2
       execTime: 3
+      command: ["/bin/sh", "-c", "touch /mnt/test/task3.txt"]
+      outputfilename: "task3.txt"      
       depends: 
         - task1
       nexts: 
@@ -46,6 +48,8 @@ spec:
       name: task4
       image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/gcr.io/google-containers/busybox:1.27.2
       execTime: 4
+      command: ["/bin/sh", "-c", "touch /mnt/test/task4.txt"]
+      outputfilename: task4.txt
       inputfilename: 
         - "task1.txt"
       depends:
@@ -55,7 +59,8 @@ spec:
     task5:
       name: task5
       image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/gcr.io/google-containers/busybox:1.27.2
-
+      command: ["/bin/sh", "-c", "touch /mnt/test/task5.txt"]
+      outputfilename: task5.txt
       execTime: 5
       depends:
         - task2
@@ -65,7 +70,8 @@ spec:
     task6:
       name: task6
       image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/gcr.io/google-containers/busybox:1.27.2
-
+      command: ["/bin/sh", "-c", "touch /mnt/test/task6.txt"]
+      outputfilename: task6.txt
       execTime: 6
       depends:
         - task3

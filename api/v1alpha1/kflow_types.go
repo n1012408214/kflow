@@ -73,7 +73,7 @@ type GroupStatus struct {
 	GroupStartTime *metav1.Time    `json:"startTime,omitempty"`
 	Node           string          `json:"node"`
 	Pvc            string          `json:"pvc,omitempty"`
-	PulledFiles    map[string]bool `json:"pulledfiles,omitempty"`
+	PulledFiles    map[string]bool `json:"pulledfiles"`
 }
 
 type TaskStatus struct {

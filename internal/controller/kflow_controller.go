@@ -375,6 +375,7 @@ func (r *KflowReconciler) groupTasks(ctx context.Context, kflow *v1alpha1.Kflow,
 		kflow.Status.Groups[i].Node = nodeList.Items[r.SelectNode(i)].Name
 		//kflow.Status.Groups[i].Tasks = groupedTasks[i]
 		kflow.Status.Groups[i].Pvc = r.CreatePVC(ctx, kflow.Status.Groups[i]).Name
+		kflow.Status.Groups[i].PulledFiles = make(map[string]bool)
 		//ctrl.Log.Info("show pvc", "pvc", kflow.Status.Groups[i].Pvc)
 		//ctrl.Log.Info("show group ", "group", kflow.Status.Groups[i])
 		for _, task := range group.Tasks {
@@ -536,11 +537,11 @@ func (r *KflowReconciler) PullData(ctx context.Context, kflow kflowiov1alpha1.Kf
 	}
 	ctrl.Log.Info("PullDate remote_tasks", "remote_tasks", remote_data_name)
 	if len(remote_data_name) != 0 {
-		r.PullDataFromredis(ctx, remote_data_name, taskStatus.TaskPVCName, taskStatus.Node, taskSpec.Name)
+		r.PullDataFromredis(ctx, remote_data_name, taskStatus.TaskPVCName, taskStatus.Node, taskSpec.Name, kflow)
 	}
 }
 
-func (r *KflowReconciler) PullDataFromredis(ctx context.Context, remote_datas map[string]bool, pvc string, node string, taskName string) {
+func (r *KflowReconciler) PullDataFromredis(ctx context.Context, remote_datas map[string]bool, pvc string, node string, taskName string, kflow kflowiov1alpha1.Kflow) {
 	ctrl.Log.Info("start PullDataFromredis")
 	redis_host := "192.168.2.149"
 	ifpull := false
@@ -601,6 +602,12 @@ func (r *KflowReconciler) PullDataFromredis(ctx context.Context, remote_datas ma
 		err := r.waitForPodToFinish(ctx, pod)
 		if err != nil {
 			ctrl.Log.Error(err, "redis-dealler-1 contrainer excute fail")
+		}
+		for remote_data, remotedata := range remote_datas {
+			kflow.Status.Tasks[taskName].Group.PulledFiles[remote_data] = remotedata
+		}
+		if err = r.Status().Update(ctx, &kflow); err != nil {
+			ctrl.Log.Error(err, "status update fail")
 		}
 	}
 }
