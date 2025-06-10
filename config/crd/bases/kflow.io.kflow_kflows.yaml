@@ -100,7 +100,7 @@ spec:
                   type: string
                 type: array
               grouped:
-                description: 记录每个组的状�?
+                description: 记录每个组的状态
                 type: boolean
               groups:
                 items:

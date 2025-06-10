@@ -1,0 +1,115 @@
+{
+    "apiVersion": "kflow.io.kflow/v1alpha1",
+    "kind": "Kflow",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/name": "kflow",
+        "app.kubernetes.io/managed-by": "kustomize"
+      },
+      "name": "kflow-sample"
+    },
+    "spec": {
+      "groupPolicy": {
+        "type": "FaasFLOW",
+        "maxTasks": 3
+      },
+      "tasks": {
+        "task1": {
+          "name": "task1",
+          "image": "swr.cn-north-4.myhuaweicloud.com/ddn-k8s/gcr.io/google-containers/busybox:1.27.2",
+          "command": ["/bin/sh", "-c", "touch /mnt/test/task1.txt"],
+          "outputfilename": "task1.txt",
+          "execTime": 1,
+          "depends": [],
+          "nexts": [
+            "task2",
+            "task3",
+            "task4"
+          ]
+        },
+        "task2": {
+          "name": "task2",
+          "image": "swr.cn-north-4.myhuaweicloud.com/ddn-k8s/gcr.io/google-containers/busybox:1.27.2",
+          "command": ["/bin/sh", "-c", "touch /mnt/test/task2.txt"],
+          "outputfilename": "task2.txt",
+          "execTime": 2,
+          "depends": [
+            "task1"
+          ],
+          "nexts": [
+            "task5"
+          ]
+        },
+        "task3": {
+          "name": "task3",
+          "image": "swr.cn-north-4.myhuaweicloud.com/ddn-k8s/gcr.io/google-containers/busybox:1.27.2",
+          "execTime": 3,
+          "command": ["/bin/sh", "-c", "touch /mnt/test/task3.txt"],
+          "outputfilename": "task3.txt",
+          "depends": [
+            "task1"
+          ],
+          "nexts": [
+            "task5",
+            "task6"
+          ]
+        },
+        "task4": {
+          "name": "task4",
+          "image": "swr.cn-north-4.myhuaweicloud.com/ddn-k8s/gcr.io/google-containers/busybox:1.27.2",
+          "execTime": 4,
+          "command": ["/bin/sh", "-c", "touch /mnt/test/task4.txt"],
+          "outputfilename": "task4.txt",
+          "inputfilename": [
+            "task1.txt"
+          ],
+          "depends": [
+            "task1"
+          ],
+          "nexts": [
+            "task6"
+          ]
+        },
+        "task5": {
+          "name": "task5",
+          "image": "swr.cn-north-4.myhuaweicloud.com/ddn-k8s/gcr.io/google-containers/busybox:1.27.2",
+          "command": ["/bin/sh", "-c", "touch /mnt/test/task5.txt"],
+          "outputfilename": "task5.txt",
+          "execTime": 5,
+          "depends": [
+            "task2",
+            "task3"
+          ],
+          "nexts": [
+            "task7"
+          ]
+        },
+        "task6": {
+          "name": "task6",
+          "image": "swr.cn-north-4.myhuaweicloud.com/ddn-k8s/gcr.io/google-containers/busybox:1.27.2",
+          "command": ["/bin/sh", "-c", "touch /mnt/test/task6.txt"],
+          "outputfilename": "task6.txt",
+          "execTime": 6,
+          "depends": [
+            "task3",
+            "task4"
+          ],
+          "nexts": [
+            "task7"
+          ]
+        },
+        "task7": {
+          "name": "task7",
+          "image": "swr.cn-north-4.myhuaweicloud.com/ddn-k8s/gcr.io/google-containers/busybox:1.27.2",
+          "execTime": 7,
+          "outputfilename":"",
+          "depends": [
+            "task5",
+            "task6"
+          ],
+          "nexts": []
+        }
+      }
+    }
+  }
+  

@@ -58,7 +58,7 @@ type TaskSpec struct {
 type KflowStatus struct {
 	Phase string `json:"phase"` // Processing | Completed | Failed
 
-	// 记录每个组的状�?
+	// 记录每个组的状态
 	Grouped bool                  `json:"grouped,omitempty"`
 	Groups  []GroupStatus         `json:"groups,omitempty"`
 	Tasks   map[string]TaskStatus `json:"tasks,omitempty"`

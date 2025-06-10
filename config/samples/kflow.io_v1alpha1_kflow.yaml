@@ -7,7 +7,6 @@ metadata:
   name: kflow-sample
 spec:
   # TODO(user): Add fields here
-  requestID: "123456"
   groupPolicy:
     type: FaasFLOW
     maxTasks: 3

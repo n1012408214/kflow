@@ -17,7 +17,6 @@ limitations under the License.
 package controller
 
 import (
-	// 标准库
 	"context"
 	"fmt"
 	"hash/fnv"
@@ -51,7 +50,6 @@ type KflowReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// Reconcile 执行任务分配和调度
 func (r *KflowReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := log.FromContext(ctx)
 	//log.Info("Reconciling Kflow111", "name", req.Name)
@@ -74,7 +72,8 @@ func (r *KflowReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 			log.Info("is task pod",
 				"pod name", pod.Name)
 			parts := strings.Split(pod.Name, "-")
-			taskName := parts[2]
+			kflowName := strings.Join(parts[:len(parts)-1], "-")
+			taskName := parts[len(parts)-1]
 			var pvList corev1.PersistentVolumeList
 			err := r.Client.List(ctx, &pvList, &client.ListOptions{
 				Namespace: req.Namespace,
@@ -87,8 +86,8 @@ func (r *KflowReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 
 			var kflow kflowiov1alpha1.Kflow
 			kflowKey := types.NamespacedName{
-				Name:      "kflow-sample", // 假设 Kflow 资源的名称为 "kflow-sample"
-				Namespace: "default",      // 假设 Kflow 资源的命名空间为 "default"
+				Name:      kflowName,
+				Namespace: "default",
 			}
 			err = r.Get(ctx, kflowKey, &kflow)
 			if kflow.Status.Tasks == nil {
@@ -414,7 +413,7 @@ func (r *KflowReconciler) CreatePVC(ctx context.Context, grouStatus kflowiov1alp
 		ctrl.Log.Error(err, "Unable to create PersistentVolumeClaim")
 	}
 	timeout := time.After(30 * time.Second)
-	ticker := time.NewTicker(2 * time.Second) // 每 2 秒检查一次 PVC 状态
+	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -423,7 +422,7 @@ func (r *KflowReconciler) CreatePVC(ctx context.Context, grouStatus kflowiov1alp
 			ctrl.Log.Error(fmt.Errorf("timeout waiting for PVC to be bound"), "PVC creation timed out")
 			return pvc
 		case <-ticker.C:
-			// 获取 PV 的当前状态
+
 			var pvcStatus corev1.PersistentVolumeClaim
 			err := r.Get(ctx, types.NamespacedName{Name: pvc.Name, Namespace: pvc.Namespace}, &pvcStatus)
 			if err != nil {
@@ -431,13 +430,12 @@ func (r *KflowReconciler) CreatePVC(ctx context.Context, grouStatus kflowiov1alp
 				return pvc
 			}
 
-			// 检查 PVC 是否已绑定
 			if pvcStatus.Status.Phase == corev1.ClaimBound {
 				ctrl.Log.Info("PVC successfully created", "PVC", pvc.Name)
 				//ctrl.Log.Info("show pvc", "pvc", pvc)
 				return pvc
 			}
-			// 如果 PVC 还没有绑定，继续等待
+
 			//ctrl.Log.Info("PVC is still in Pending state", "PVC", pvc.Name)
 		}
 	}
@@ -488,9 +486,8 @@ func (r *KflowReconciler) CreatePV(ctx context.Context, node string) corev1.Pers
 		ctrl.Log.Error(err, "Unable to create PersistentVolume")
 	}
 
-	//轮循等待PV创建完成
 	timeout := time.After(30 * time.Second)
-	ticker := time.NewTicker(2 * time.Second) // 每 2 秒检查一次 PVC 状态
+	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -499,7 +496,7 @@ func (r *KflowReconciler) CreatePV(ctx context.Context, node string) corev1.Pers
 			ctrl.Log.Error(fmt.Errorf("timeout waiting for PVC to be bound"), "PVC creation timed out")
 			return pv
 		case <-ticker.C:
-			// 获取 PV 的当前状态
+
 			var pvStatus corev1.PersistentVolume
 			err := r.Get(ctx, types.NamespacedName{Name: pv.Name, Namespace: pv.Namespace}, &pvStatus)
 			if err != nil {
@@ -507,12 +504,11 @@ func (r *KflowReconciler) CreatePV(ctx context.Context, node string) corev1.Pers
 				return pv
 			}
 
-			// 检查 PVC 是否已绑定
 			if pvStatus.Status.Phase == corev1.VolumeAvailable {
 				ctrl.Log.Info("PV successfully created", "PV", pv.Name)
 				return pv
 			}
-			// 如果 PVC 还没有绑定，继续等待
+
 			ctrl.Log.Info("PV is still in Pending state", "PV", pv.Name)
 		}
 	}
@@ -531,7 +527,7 @@ func (r *KflowReconciler) PullData(ctx context.Context, kflow kflowiov1alpha1.Kf
 		//nextTaskSpec := kflow.Status.Tasks[depTask].Task
 		//ctrl.Log.Info("nextTaskSpecs", "spec", nextTaskSpec)
 		//ctrl.Log.Info("nextTaskStatus", "status", nextTaskStatus)
-		if depTaskOutPutFileName != "" && depTaskStatus.Node != taskStatus.Node && groupStatus.PulledFiles[depTaskOutPutFileName] == false { //dep task 和当前task不在同一节点,且文件没有被pull过，需要远程读取
+		if depTaskOutPutFileName != "" && depTaskStatus.Node != taskStatus.Node && groupStatus.PulledFiles[depTaskOutPutFileName] == false { //dep task 和当前task不在同一节点,且文件没有�?�pull过，需要远程�?�取
 			remote_data_name[depTaskOutPutFileName] = true
 		}
 	}
@@ -576,7 +572,7 @@ func (r *KflowReconciler) PullDataFromredis(ctx context.Context, remote_datas ma
 						VolumeMounts: []corev1.VolumeMount{
 							{
 								Name:      pvc,
-								MountPath: "/mnt/test", // 挂载 PVC
+								MountPath: "/mnt/test",
 							},
 						},
 					},
@@ -635,7 +631,7 @@ func (r *KflowReconciler) PushData(ctx context.Context, kflow v1alpha1.Kflow, ta
 				//nextTaskSpec := kflow.Status.Tasks[nextTask].Task
 				//ctrl.Log.Info("nextTaskSpecs", "spec", nextTaskSpec)
 				//ctrl.Log.Info("nextTaskStatus", "status", nextTaskStatus)
-				if nextTaskStatus.Node != groupStatus.Node && remote_data[taskSpec.OutputFileName] == false { //dep task 和当前task不在同一节点,且next task的input不为空，需要远程读取
+				if nextTaskStatus.Node != groupStatus.Node && remote_data[taskSpec.OutputFileName] == false { //dep task 和当前task不在同一节点,且next task的input不为空，需要远程�?�取
 					remote_data[taskSpec.OutputFileName] = true
 					break
 				}
@@ -683,7 +679,7 @@ func (r *KflowReconciler) PushDataToRedis(ctx context.Context, remote_datas map[
 						VolumeMounts: []corev1.VolumeMount{
 							{
 								Name:      pvc,
-								MountPath: "/mnt/test", // 挂载 PVC
+								MountPath: "/mnt/test",
 							},
 						},
 					},
@@ -739,7 +735,7 @@ func (r *KflowReconciler) waitForPodToFinish(ctx context.Context, pod *corev1.Po
 }
 
 func (r *KflowReconciler) SelectNode(id int) int {
-	return id % 3
+	return id % 4
 }
 
 func (r *KflowReconciler) CreateTaskStatus(group kflowiov1alpha1.GroupStatus, task kflowiov1alpha1.TaskSpec, pvcname string) kflowiov1alpha1.TaskStatus {
@@ -766,12 +762,11 @@ func hashDataPath(s string) int {
 	return int(h.Sum32())
 }
 
-// scheduleTasks 为每个任务组选择一个节点，并为任务创建 Pod
 func (r *KflowReconciler) scheduleTasks(ctx context.Context, kflow *v1alpha1.Kflow, taskSpec kflowiov1alpha1.TaskSpec, taskStatus kflowiov1alpha1.TaskStatus) error {
 	ctrl.Log.Info("Start schedule Tasks")
 	//ctrl.Log.Info("show tasks pvc", "pvc", taskStatus.TaskPVC)
 	//ctrl.Log.Info("show taskstatus.Pvc.name", "pvc name", taskStatus.TaskPVCName)
-	// 为每个任务创建 Pod
+
 	if taskStatus.Status == "completed" {
 		log.Log.Info("task completed", "task name", taskSpec.Name, "status", taskStatus)
 		return nil
@@ -859,7 +854,7 @@ func (r *KflowReconciler) SetGroupStatus(groupedTasks map[int][]kflowiov1alpha1.
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *KflowReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	// 设置 Kflow 资源的 Watch
+
 	err := ctrl.NewControllerManagedBy(mgr).
 		For(&kflowiov1alpha1.Kflow{}).
 		Complete(r)
@@ -867,20 +862,17 @@ func (r *KflowReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return err
 	}
 
-	// 设置 Pod 资源的 Watch，并使用事件过滤器
 	err = ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Pod{}).
 		WithEventFilter(predicate.Funcs{
 			UpdateFunc: func(e event.UpdateEvent) bool {
 				pod := e.ObjectNew.(*corev1.Pod)
 
-				// 使用正则表达式匹配 Pod 名称是否以 "kflow-sample-" 为前缀
 				matched, _ := regexp.MatchString("kflow-sample-", pod.GetName())
 				if !matched {
-					return false // 只处理名称以 "kflow-sample-" 开头的 Pod
+					return false
 				}
 
-				// 其他过滤条件：Pod 的状态必须是 Succeeded 或 Failed，且命名空间是 "kflow-worker"
 				return (pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed) &&
 					pod.GetNamespace() == "kflow-worker"
 			},
