@@ -136,7 +136,8 @@ func (r *KflowReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 
 			for i := 0; i < len(nodeList.Items); i++ {
 				selectedNode := nodeList.Items[i].Name
-				kflow.Status.Pv[selectedNode] = r.CreatePV(ctx, selectedNode).Name
+				kflow.Status.Pv[selectedNode] = r.CreatePV(kflow, ctx, selectedNode).Name
+				ctrl.Log.Info("create pv end")
 				kflow.Status.Nodes[i] = selectedNode
 			}
 
@@ -373,7 +374,8 @@ func (r *KflowReconciler) groupTasks(ctx context.Context, kflow *v1alpha1.Kflow,
 	for i, group := range kflow.Status.Groups {
 		kflow.Status.Groups[i].Node = nodeList.Items[r.SelectNode(i)].Name
 		//kflow.Status.Groups[i].Tasks = groupedTasks[i]
-		kflow.Status.Groups[i].Pvc = r.CreatePVC(ctx, kflow.Status.Groups[i]).Name
+		kflow.Status.Groups[i].Pvc = r.CreatePVC(*kflow, ctx, kflow.Status.Groups[i]).Name
+		ctrl.Log.Info("create pvc end")
 		kflow.Status.Groups[i].PulledFiles = make(map[string]bool)
 		//ctrl.Log.Info("show pvc", "pvc", kflow.Status.Groups[i].Pvc)
 		//ctrl.Log.Info("show group ", "group", kflow.Status.Groups[i])
@@ -383,17 +385,18 @@ func (r *KflowReconciler) groupTasks(ctx context.Context, kflow *v1alpha1.Kflow,
 		}
 	}
 	kflow.Status.Grouped = true
+	ctrl.Log.Info("group Tasks end")
 	//if err := r.Status().Update(ctx, kflow); err != nil {
 	//	ctrl.Log.Error(err, "Failed to update Kflow status")
 	//}
 	return nil
 }
 
-func (r *KflowReconciler) CreatePVC(ctx context.Context, grouStatus kflowiov1alpha1.GroupStatus) corev1.PersistentVolumeClaim {
+func (r *KflowReconciler) CreatePVC(kflow kflowiov1alpha1.Kflow, ctx context.Context, grouStatus kflowiov1alpha1.GroupStatus) corev1.PersistentVolumeClaim {
 	ctrl.Log.Info("start create pvc")
 	pvc := corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("group-%d-pvc", grouStatus.GroupID),
+			Name:      fmt.Sprintf("group-%d-pvc-%s", grouStatus.GroupID, kflow.Spec.RequestID),
 			Namespace: "kflow-worker",
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
@@ -402,7 +405,7 @@ func (r *KflowReconciler) CreatePVC(ctx context.Context, grouStatus kflowiov1alp
 					corev1.ResourceStorage: resource.MustParse("1Ki"),
 				},
 			},
-			VolumeName: fmt.Sprintf("node-%s-pv", grouStatus.Node),
+			VolumeName: fmt.Sprintf("node-%s-pv-%s", grouStatus.Node, kflow.Spec.RequestID),
 			AccessModes: []corev1.PersistentVolumeAccessMode{
 				corev1.ReadWriteMany,
 			},
@@ -439,13 +442,14 @@ func (r *KflowReconciler) CreatePVC(ctx context.Context, grouStatus kflowiov1alp
 			//ctrl.Log.Info("PVC is still in Pending state", "PVC", pvc.Name)
 		}
 	}
+
 }
 
-func (r *KflowReconciler) CreatePV(ctx context.Context, node string) corev1.PersistentVolume {
+func (r *KflowReconciler) CreatePV(kflow kflowiov1alpha1.Kflow, ctx context.Context, node string) corev1.PersistentVolume {
 	ctrl.Log.Info("start create pv")
 	pv := corev1.PersistentVolume{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("node-%s-pv", node),
+			Name:      fmt.Sprintf("node-%s-pv-%s", node, kflow.Spec.RequestID),
 			Namespace: "kflow-worker",
 		},
 		Spec: corev1.PersistentVolumeSpec{
@@ -535,6 +539,7 @@ func (r *KflowReconciler) PullData(ctx context.Context, kflow kflowiov1alpha1.Kf
 	if len(remote_data_name) != 0 {
 		r.PullDataFromredis(ctx, remote_data_name, taskStatus.TaskPVCName, taskStatus.Node, taskSpec.Name, kflow)
 	}
+	ctrl.Log.Info("Pull data end")
 }
 
 func (r *KflowReconciler) PullDataFromredis(ctx context.Context, remote_datas map[string]bool, pvc string, node string, taskName string, kflow kflowiov1alpha1.Kflow) {
@@ -553,7 +558,7 @@ func (r *KflowReconciler) PullDataFromredis(ctx context.Context, remote_datas ma
 
 		pod := &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      fmt.Sprintf("redis-puller-pod-%s", taskName),
+				Name:      fmt.Sprintf("redis-puller-pod-%s-%s", taskName, kflow.Spec.RequestID),
 				Namespace: "kflow-worker",
 			},
 			Spec: corev1.PodSpec{
@@ -596,6 +601,7 @@ func (r *KflowReconciler) PullDataFromredis(ctx context.Context, remote_datas ma
 			ctrl.Log.Error(err, "redis-dealler-1 contrainer create fail")
 		}
 		err := r.waitForPodToFinish(ctx, pod)
+		ctrl.Log.Info("finish waitForPodToFinish")
 		if err != nil {
 			ctrl.Log.Error(err, "redis-dealler-1 contrainer excute fail")
 		}
@@ -606,6 +612,7 @@ func (r *KflowReconciler) PullDataFromredis(ctx context.Context, remote_datas ma
 			ctrl.Log.Error(err, "status update fail")
 		}
 	}
+	ctrl.Log.Info("finish PullDataFromredis")
 }
 
 func (r *KflowReconciler) PushData(ctx context.Context, kflow v1alpha1.Kflow, taskName string) {
@@ -638,11 +645,12 @@ func (r *KflowReconciler) PushData(ctx context.Context, kflow v1alpha1.Kflow, ta
 			}
 		}
 		ctrl.Log.Info("remote and local tasks", "remote data name", remote_data)
-		r.PushDataToRedis(ctx, remote_data, groupStatus.Pvc, groupStatus.Node, groupStatus.GroupID)
+		r.PushDataToRedis(ctx, remote_data, groupStatus.Pvc, groupStatus.Node, groupStatus.GroupID, kflow)
 	}
+	ctrl.Log.Info("finish PushData")
 }
 
-func (r *KflowReconciler) PushDataToRedis(ctx context.Context, remote_datas map[string]bool, pvc string, node string, groupID int) {
+func (r *KflowReconciler) PushDataToRedis(ctx context.Context, remote_datas map[string]bool, pvc string, node string, groupID int, kflow kflowiov1alpha1.Kflow) {
 	ctrl.Log.Info("start PushDataToRedis")
 
 	redis_host := "192.168.2.149"
@@ -660,7 +668,7 @@ func (r *KflowReconciler) PushDataToRedis(ctx context.Context, remote_datas map[
 		//ctrl.Log.Info("command", "command", command)
 		pod := &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      fmt.Sprintf("redis-pusher-group-%d", groupID),
+				Name:      fmt.Sprintf("redis-pusher-group-%d-%s", groupID, kflow.Spec.RequestID),
 				Namespace: "kflow-worker",
 			},
 			Spec: corev1.PodSpec{
@@ -703,13 +711,16 @@ func (r *KflowReconciler) PushDataToRedis(ctx context.Context, remote_datas map[
 			ctrl.Log.Error(err, "redis-dealler contrainer create fail")
 		}
 		err := r.waitForPodToFinish(ctx, pod)
+		ctrl.Log.Info("finish waitForPodToFinish")
 		if err != nil {
 			ctrl.Log.Error(err, "redis-dealler contrainer excute fail")
 		}
 	}
+	ctrl.Log.Info("finish PushDataToRedis")
 }
 
 func (r *KflowReconciler) waitForPodToFinish(ctx context.Context, pod *corev1.Pod) error {
+	ctrl.Log.Info("start waitForPodToFinish")
 	var p corev1.Pod
 	for {
 		err := r.Get(ctx, types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, &p)
@@ -732,6 +743,7 @@ func (r *KflowReconciler) waitForPodToFinish(ctx context.Context, pod *corev1.Po
 			return fmt.Errorf("unexpected pod phase: %s", p.Status.Phase)
 		}
 	}
+
 }
 
 func (r *KflowReconciler) SelectNode(id int) int {
@@ -739,7 +751,7 @@ func (r *KflowReconciler) SelectNode(id int) int {
 }
 
 func (r *KflowReconciler) CreateTaskStatus(group kflowiov1alpha1.GroupStatus, task kflowiov1alpha1.TaskSpec, pvcname string) kflowiov1alpha1.TaskStatus {
-	ctrl.Log.Info("Start Create task status")
+	ctrl.Log.Info("Start CreateTaskStatus")
 	taskstatus := kflowiov1alpha1.TaskStatus{
 		Task:    task,
 		Status:  "create",
@@ -753,6 +765,7 @@ func (r *KflowReconciler) CreateTaskStatus(group kflowiov1alpha1.GroupStatus, ta
 	//ctrl.Log.Info("show taskstatus.Group.Pvc", "pvc", taskstatus.Group.Pvc)
 	//ctrl.Log.Info("show taskstatus.Pvc", "pvc", taskstatus.TaskPVC)
 	//ctrl.Log.Info("show taskstatus.Pvc.Name", "pvc", taskstatus.TaskPVCName)
+	ctrl.Log.Info("Start CreateTaskStatus")
 	return taskstatus
 }
 
@@ -763,7 +776,7 @@ func hashDataPath(s string) int {
 }
 
 func (r *KflowReconciler) scheduleTasks(ctx context.Context, kflow *v1alpha1.Kflow, taskSpec kflowiov1alpha1.TaskSpec, taskStatus kflowiov1alpha1.TaskStatus) error {
-	ctrl.Log.Info("Start schedule Tasks")
+	ctrl.Log.Info("Start scheduleTasks")
 	//ctrl.Log.Info("show tasks pvc", "pvc", taskStatus.TaskPVC)
 	//ctrl.Log.Info("show taskstatus.Pvc.name", "pvc name", taskStatus.TaskPVCName)
 
@@ -810,22 +823,23 @@ func (r *KflowReconciler) scheduleTasks(ctx context.Context, kflow *v1alpha1.Kfl
 				},
 			},
 		}
-
+		ctrl.Log.Info("finish build pod", "task name", taskSpec.Name)
 		ctrl.Log.Info("start create contrainer")
 		if err := r.Create(ctx, pod); err != nil {
 			return err
 		}
+		ctrl.Log.Info("finish create contrainer")
 		taskStatus := kflow.Status.Tasks[taskSpec.Name]
 		taskStatus.Pod = pod.Name
 		taskStatus.Status = "Running"
 		kflow.Status.Tasks[taskSpec.Name] = taskStatus
 	}
-
+	ctrl.Log.Info("finish scheduleTasks")
 	return nil
 }
 
 func (r *KflowReconciler) CheckDependsStatus(kflow kflowiov1alpha1.Kflow, TaskSpec kflowiov1alpha1.TaskSpec) bool {
-	log.Log.Info("Check Depends Status",
+	ctrl.Log.Info("start CheckDependsStatus",
 		"current task", TaskSpec.Name)
 	depends := kflow.Status.Tasks[TaskSpec.Name].Depends
 	for _, task := range depends {
@@ -833,13 +847,16 @@ func (r *KflowReconciler) CheckDependsStatus(kflow kflowiov1alpha1.Kflow, TaskSp
 			"depend name", task,
 			"status", kflow.Status.Tasks[task].Status)
 		if kflow.Status.Tasks[task].Status != "completed" {
+			ctrl.Log.Info("finish CheckDependsStatus")
 			return false
 		}
 	}
+	ctrl.Log.Info("finish CheckDependsStatus")
 	return true
 }
 
 func (r *KflowReconciler) SetGroupStatus(groupedTasks map[int][]kflowiov1alpha1.TaskSpec, status string) []v1alpha1.GroupStatus {
+	ctrl.Log.Info("start SetGroupStatus")
 	var groups []v1alpha1.GroupStatus
 	for groupID, tasks := range groupedTasks {
 		group := v1alpha1.GroupStatus{
@@ -849,6 +866,7 @@ func (r *KflowReconciler) SetGroupStatus(groupedTasks map[int][]kflowiov1alpha1.
 		}
 		groups = append(groups, group)
 	}
+	ctrl.Log.Info("finish SetGroupStatus")
 	return groups
 }
 
